@@ -1,0 +1,16 @@
+[project]
+name = "programatic-dataset-generation-tool"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.13",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
