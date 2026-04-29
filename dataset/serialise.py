@@ -38,7 +38,7 @@ def stimulus_from_dict(d: dict) -> Stimulus:
         spec=spec,
         messages=messages,
         target=d["target"],
-        invariants_checked=list(d["invariants_checked"]),
+        validators_ran=list(d.get("validators_ran", [])),
         metadata=dict(d.get("metadata", {})),
     )
 

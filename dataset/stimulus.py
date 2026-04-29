@@ -22,12 +22,6 @@ class Stimulus:
     spec: Spec
     messages: list[Message]
     target: Any
-    invariants_checked: list[str]
     metadata: dict = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not self.invariants_checked:
-            raise ValueError(
-                "Stimulus.invariants_checked must be non-empty. "
-                "To explicitly opt out of validation, pass ['none']."
-            )
+    # Set by the runner after validation. User generators should leave this alone.
+    validators_ran: list[str] = field(default_factory=list)
