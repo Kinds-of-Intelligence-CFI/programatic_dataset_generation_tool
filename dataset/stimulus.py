@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 from generation.generate import Spec
 
@@ -21,7 +21,7 @@ class Stimulus:
     sample_id: str
     spec: Spec
     messages: list[Message]
-    target: Any
+    target: str
     metadata: dict = field(default_factory=dict)
     # Set by the runner after validation. User generators should leave this alone.
     validators_ran: list[str] = field(default_factory=list)
