@@ -28,7 +28,7 @@ def _trivial_generator(spec: Spec, rng: random.Random) -> Stimulus:
         sample_id=f"s_{spec.params['i']}_{rng.randint(0, 10**9)}",
         spec=spec,
         messages=[Message(role="user", content=f"hello {spec.params['i']}")],
-        target=spec.params["i"],
+        target=str(spec.params["i"]),
     )
 
 
@@ -57,7 +57,7 @@ def test_run_writes_jsonl_in_deterministic_submission_order(tmp_path: Path):
 
     records = _read_jsonl(out / "stimuli.jsonl")
     targets = [r["target"] for r in records]
-    expected = [spec_index for spec_index in range(8) for _ in range(2)]
+    expected = [str(spec_index) for spec_index in range(8) for _ in range(2)]
     assert targets == expected
 
 
@@ -197,9 +197,9 @@ def test_run_records_validators_ran_in_jsonl(tmp_path: Path):
 
     records = _read_jsonl(out / "stimuli.jsonl")
     by_target = {r["target"]: r["validators_ran"] for r in records}
-    assert by_target[0] == ["cap_a_check", "universal"]
-    assert by_target[1] == ["cap_a_check", "cap_b_check", "universal"]
-    assert by_target[2] == ["universal"]
+    assert by_target["0"] == ["cap_a_check", "universal"]
+    assert by_target["1"] == ["cap_a_check", "cap_b_check", "universal"]
+    assert by_target["2"] == ["universal"]
 
 
 def test_run_default_name_falls_back_to_output_dir(tmp_path: Path):

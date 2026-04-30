@@ -80,7 +80,7 @@ def test_validators_ran_defaults_to_empty():
         sample_id="x",
         spec=Spec(),
         messages=[],
-        target=None,
+        target="",
     )
     assert s.validators_ran == []
 
@@ -90,7 +90,7 @@ def test_empty_validators_ran_round_trips():
         sample_id="x",
         spec=Spec(),
         messages=[],
-        target=None,
+        target="",
     )
     restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
     assert restored.validators_ran == []

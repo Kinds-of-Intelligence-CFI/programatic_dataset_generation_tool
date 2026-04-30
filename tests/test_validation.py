@@ -28,7 +28,7 @@ def _stimulus(
         sample_id=sample_id,
         spec=spec,
         messages=[Message(role="user", content="hi")],
-        target=None,
+        target="",
     )
     return stimulus, spec
 
