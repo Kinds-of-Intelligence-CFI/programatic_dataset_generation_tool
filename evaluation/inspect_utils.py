@@ -77,7 +77,13 @@ def add_messages_from_metadata():
                     if content_item["type"] == "text":
                         content.append(ContentText(text=content_item["data"]))
                     elif content_item["type"] == "image":
-                        content.append(ContentImage(image=content_item["data"]))
+                        image_path = content_item["data"]
+                        dataset_dir = state.metadata["_stimulus"].get("dataset_dir")
+                        if dataset_dir:
+                            candidate = Path(dataset_dir) / image_path
+                            if candidate.is_file():
+                                image_path = str(candidate)
+                        content.append(ContentImage(image=image_path))
                     else:
                         raise ValueError(f"Unknown content type: {content_item['type']}")
             
