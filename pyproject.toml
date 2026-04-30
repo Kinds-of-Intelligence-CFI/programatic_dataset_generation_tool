@@ -12,6 +12,10 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "mypy>=1.13",
+    "types-tqdm>=4.66",
+]
+inspect = [
+    "inspect-ai>=0.3.214",
 ]
 
 [tool.pytest.ini_options]
