@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterator
 
+from tqdm import tqdm
+
 from dataset.stimulus import Stimulus
 from dataset.writer import write_dataset
 from generation.generate import GenerateFn, Spec
@@ -51,18 +53,20 @@ def run(
             }
             buffer: dict[int, Stimulus] = {}
             next_to_write = 0
-            try:
-                for fut in as_completed(futures):
-                    idx = futures[fut]
-                    stimulus = fut.result()
-                    buffer[idx] = stimulus
-                    while next_to_write in buffer:
-                        yield buffer.pop(next_to_write)
-                        next_to_write += 1
-            except BaseException:
-                for f in futures:
-                    f.cancel()
-                raise
+            with tqdm(total=len(jobs), desc="generating") as bar:
+                try:
+                    for fut in as_completed(futures):
+                        idx = futures[fut]
+                        stimulus = fut.result()
+                        bar.update(1)
+                        buffer[idx] = stimulus
+                        while next_to_write in buffer:
+                            yield buffer.pop(next_to_write)
+                            next_to_write += 1
+                except BaseException:
+                    for f in futures:
+                        f.cancel()
+                    raise
 
     write_dataset(
         output_dir,
