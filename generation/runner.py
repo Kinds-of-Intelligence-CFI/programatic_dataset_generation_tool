@@ -52,6 +52,7 @@ def run(
                 for idx, (si, ri) in enumerate(jobs)
             }
             buffer: dict[int, Stimulus] = {}
+            seen_ids: set[str] = set()
             next_to_write = 0
             with tqdm(total=len(jobs), desc="generating") as bar:
                 try:
@@ -61,7 +62,18 @@ def run(
                         bar.update(1)
                         buffer[idx] = stimulus
                         while next_to_write in buffer:
-                            yield buffer.pop(next_to_write)
+                            stim = buffer.pop(next_to_write)
+                            if stim.sample_id is None:
+                                stim.sample_id = str(next_to_write)
+                            if stim.sample_id in seen_ids:
+                                si_, ri_ = jobs[next_to_write]
+                                raise ValueError(
+                                    f"Duplicate sample_id {stim.sample_id!r} "
+                                    f"at yield index {next_to_write} "
+                                    f"(spec_index={si_}, rep_index={ri_})"
+                                )
+                            seen_ids.add(stim.sample_id)
+                            yield stim
                             next_to_write += 1
                 except BaseException:
                     for f in futures:

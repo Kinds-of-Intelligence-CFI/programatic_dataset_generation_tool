@@ -28,7 +28,7 @@ class ValidationError(Exception):
         self,
         capability: str,
         validator_name: str,
-        sample_id: str,
+        sample_id: str | None,
         original: BaseException,
     ) -> None:
         super().__init__(
