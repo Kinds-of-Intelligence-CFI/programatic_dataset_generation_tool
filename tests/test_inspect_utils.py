@@ -1,22 +1,20 @@
-import asyncio
 import json
 from pathlib import Path
 
 import pytest
-from inspect_ai._util.content import ContentImage, ContentText
+from inspect_ai._util.content import ContentImage as InspectContentImage
+from inspect_ai._util.content import ContentText as InspectContentText
 from inspect_ai.dataset import MemoryDataset
 from inspect_ai.model import (
     ChatMessageAssistant,
     ChatMessageSystem,
     ChatMessageTool,
     ChatMessageUser,
-    ModelName,
 )
-from inspect_ai.solver import TaskState
 
-from dataset.stimulus import Content, Message, Stimulus
+from dataset.stimulus import ContentImage, ContentText, Message, Stimulus
 from dataset.writer import write_dataset
-from evaluation.inspect_utils import add_messages_from_metadata, load_dataset
+from evaluation.inspect_utils import load_dataset
 from generation.generate import Spec
 
 
@@ -60,6 +58,9 @@ def _stimulus(
     )
 
 
+# ---- basic loading ----------------------------------------------------------
+
+
 def test_load_dataset_returns_memory_dataset_with_manifest_name(tmp_path: Path):
     out = _write(tmp_path, [_stimulus("s_0"), _stimulus("s_1")], name="demo")
 
@@ -70,41 +71,43 @@ def test_load_dataset_returns_memory_dataset_with_manifest_name(tmp_path: Path):
     assert len(ds) == 2
 
 
-def test_load_dataset_preserves_jsonl_order_and_core_fields(tmp_path: Path):
-    stimuli = [
-        _stimulus(f"s_{i}", target=f"t_{i}", capabilities={"cap_a", "cap_b"})
-        for i in range(3)
-    ]
+def test_load_dataset_preserves_jsonl_order_and_ids(tmp_path: Path):
+    stimuli = [_stimulus(f"s_{i}", target=f"t_{i}") for i in range(3)]
     out = _write(tmp_path, stimuli)
 
     ds = load_dataset(out)
 
     assert [s.id for s in ds] == ["s_0", "s_1", "s_2"]
     assert [s.target for s in ds] == ["t_0", "t_1", "t_2"]
-    for sample in ds:
-        block = sample.metadata["_stimulus"]
-        assert block["spec"]["capabilities"] == ["cap_a", "cap_b"]
-        assert block["dataset_dir"] == str(out)
-        assert block["validators_ran"] == []
-        assert block["messages"] == [{"role": "user", "content": "hello"}]
+
+
+def test_stimulus_metadata_block_contains_spec_and_dataset_dir(tmp_path: Path):
+    stim = _stimulus("s_0", capabilities={"cap_a", "cap_b"})
+    out = _write(tmp_path, [stim])
+
+    sample = load_dataset(out)[0]
+    block = sample.metadata["_stimulus"]
+    assert block["spec"]["capabilities"] == ["cap_a", "cap_b"]
+    assert block["dataset_dir"] == str(out)
+    assert block["validators_ran"] == []
+    # messages no longer live in metadata - they're on Sample.input
+    assert "messages" not in block
 
 
 def test_user_metadata_is_flat_alongside_stimulus_block(tmp_path: Path):
     stim = _stimulus("s_0", metadata={"foo": 1, "bar": "x"})
     out = _write(tmp_path, [stim])
 
-    ds = load_dataset(out)
-    sample = ds[0]
-
+    sample = load_dataset(out)[0]
     assert sample.metadata["foo"] == 1
     assert sample.metadata["bar"] == "x"
     assert "_stimulus" in sample.metadata
-    assert sample.metadata["_stimulus"]["messages"] == [
-        {"role": "user", "content": "hello"}
-    ]
 
 
-def test_single_user_text_message_populates_input(tmp_path: Path):
+# ---- string-input shortcut --------------------------------------------------
+
+
+def test_single_user_text_message_populates_input_as_string(tmp_path: Path):
     stim = _stimulus(
         "s_0",
         messages=[Message(role="user", content="what is the capital of France?")],
@@ -115,7 +118,10 @@ def test_single_user_text_message_populates_input(tmp_path: Path):
     assert sample.input == "what is the capital of France?"
 
 
-def test_input_shortcut_skipped_for_multiple_messages(tmp_path: Path):
+# ---- typed list[ChatMessage] input ------------------------------------------
+
+
+def test_multiple_messages_become_list_of_chat_messages(tmp_path: Path):
     stim = _stimulus(
         "s_0",
         messages=[
@@ -124,32 +130,102 @@ def test_input_shortcut_skipped_for_multiple_messages(tmp_path: Path):
         ],
     )
     out = _write(tmp_path, [stim])
-
     sample = load_dataset(out)[0]
-    assert sample.input == ""
-    assert len(sample.metadata["_stimulus"]["messages"]) == 2
+
+    assert isinstance(sample.input, list)
+    assert len(sample.input) == 2
+    assert isinstance(sample.input[0], ChatMessageSystem)
+    assert sample.input[0].content == "you are helpful"
+    assert isinstance(sample.input[1], ChatMessageUser)
+    assert sample.input[1].content == "hi"
 
 
-def test_input_shortcut_skipped_for_non_user_role(tmp_path: Path):
+@pytest.mark.parametrize(
+    "role,expected_cls",
+    [
+        ("system", ChatMessageSystem),
+        ("user", ChatMessageUser),
+        ("assistant", ChatMessageAssistant),
+        ("tool", ChatMessageTool),
+    ],
+)
+def test_all_four_roles_map_correctly(role, expected_cls, tmp_path: Path):
+    # Pair with an extra message so the shortcut doesn't kick in.
     stim = _stimulus(
         "s_0",
-        messages=[Message(role="system", content="you are helpful")],
+        messages=[
+            Message(role=role, content="x"),
+            Message(role="user", content="continue"),
+        ],
     )
     out = _write(tmp_path, [stim])
-
     sample = load_dataset(out)[0]
-    assert sample.input == ""
+
+    assert isinstance(sample.input, list)
+    assert isinstance(sample.input[0], expected_cls)
 
 
-def test_input_shortcut_skipped_for_list_typed_content(tmp_path: Path):
+def test_multimodal_user_message_uses_typed_content_parts(tmp_path: Path):
     stim = _stimulus(
         "s_0",
         messages=[
             Message(
                 role="user",
                 content=[
-                    Content(type="text", data="describe this"),
-                    Content(type="image", data="assets/foo.png"),
+                    ContentText(text="describe this"),
+                    ContentImage(image="assets/files/foo__abc123def456.png"),
+                ],
+            )
+        ],
+    )
+    out = _write(tmp_path, [stim])
+    sample = load_dataset(out)[0]
+
+    assert isinstance(sample.input, list)
+    parts = sample.input[0].content
+    assert isinstance(parts, list)
+    assert isinstance(parts[0], InspectContentText)
+    assert parts[0].text == "describe this"
+    assert isinstance(parts[1], InspectContentImage)
+
+
+def test_relative_image_path_resolved_to_absolute_at_load(tmp_path: Path):
+    stim = _stimulus(
+        "s_0",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="see this"),
+                    ContentImage(image="assets/files/foo__abc123def456.png"),
+                ],
+            )
+        ],
+    )
+    out = _write(tmp_path, [stim])
+    # Place a fake asset so resolution has something to point at.
+    fake = out / "assets" / "files" / "foo__abc123def456.png"
+    fake.parent.mkdir(parents=True, exist_ok=True)
+    fake.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    sample = load_dataset(out)[0]
+    image = sample.input[0].content[1]
+    assert isinstance(image, InspectContentImage)
+    assert Path(image.image).is_absolute()
+    assert image.image == str(fake)
+
+
+def test_relative_path_unchanged_when_file_missing(tmp_path: Path):
+    # If the asset doesn't exist at load time we leave the path alone rather
+    # than silently rewriting to a wrong absolute path.
+    stim = _stimulus(
+        "s_0",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="x"),
+                    ContentImage(image="assets/files/missing__ffffffffffff.png"),
                 ],
             )
         ],
@@ -157,18 +233,90 @@ def test_input_shortcut_skipped_for_list_typed_content(tmp_path: Path):
     out = _write(tmp_path, [stim])
 
     sample = load_dataset(out)[0]
-    assert sample.input == ""
-    content_blocks = sample.metadata["_stimulus"]["messages"][0]["content"]
-    assert isinstance(content_blocks, list)
-    assert content_blocks[1]["type"] == "image"
+    image = sample.input[0].content[1]
+    assert image.image == "assets/files/missing__ffffffffffff.png"
 
 
-def test_input_shortcut_skipped_for_zero_messages(tmp_path: Path):
-    stim = _stimulus("s_0", messages=[])
+def test_content_image_preserves_detail(tmp_path: Path):
+    stim = _stimulus(
+        "s_0",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="hi"),
+                    ContentImage(image="assets/files/foo__abc.png", detail="high"),
+                ],
+            )
+        ],
+    )
+    out = _write(tmp_path, [stim])
+    sample = load_dataset(out)[0]
+    image = sample.input[0].content[1]
+    assert isinstance(image, InspectContentImage)
+    assert image.detail == "high"
+
+
+def test_mixed_content_preserves_order(tmp_path: Path):
+    stim = _stimulus(
+        "s_0",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="first"),
+                    ContentImage(image="assets/files/a__111111111111.png"),
+                    ContentText(text="third"),
+                ],
+            )
+        ],
+    )
+    out = _write(tmp_path, [stim])
+    parts = load_dataset(out)[0].input[0].content
+    assert [type(p) for p in parts] == [
+        InspectContentText,
+        InspectContentImage,
+        InspectContentText,
+    ]
+    assert parts[0].text == "first"
+    assert parts[2].text == "third"
+
+
+# ---- end-to-end roundtrip ---------------------------------------------------
+
+
+def test_roundtrip_inline_image_resolves_to_real_file_on_disk(tmp_path: Path):
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"abc"
+    stim = _stimulus(
+        "s_0",
+        messages=[
+            Message(role="system", content="be precise"),
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="describe"),
+                    ContentImage.from_bytes(png_bytes, suffix="png"),
+                ],
+            ),
+            Message(role="assistant", content="ok"),
+        ],
+    )
     out = _write(tmp_path, [stim])
 
     sample = load_dataset(out)[0]
-    assert sample.input == ""
+    assert isinstance(sample.input, list)
+    assert [m.role for m in sample.input] == ["system", "user", "assistant"]
+
+    user_content = sample.input[1].content
+    assert isinstance(user_content[0], InspectContentText)
+    assert user_content[0].text == "describe"
+    image = user_content[1]
+    assert isinstance(image, InspectContentImage)
+    assert Path(image.image).is_absolute()
+    assert Path(image.image).read_bytes() == png_bytes
+
+
+# ---- error paths ------------------------------------------------------------
 
 
 def test_load_dataset_raises_on_missing_manifest(tmp_path: Path):
@@ -196,251 +344,3 @@ def test_empty_dataset_loads_with_zero_samples(tmp_path: Path):
     assert isinstance(ds, MemoryDataset)
     assert ds.name == "empty"
     assert len(ds) == 0
-
-
-def _state(
-    *,
-    metadata: dict | None = None,
-    messages: list | None = None,
-    sample_id: str = "s_0",
-    input_: str = "ignored",
-) -> TaskState:
-    return TaskState(
-        model=ModelName("anthropic/claude-3-5-sonnet-20241022"),
-        sample_id=sample_id,
-        epoch=0,
-        input=input_,
-        messages=list(messages) if messages else [],
-        metadata=metadata if metadata is not None else {},
-    )
-
-
-async def _noop_generate(state, **kwargs):
-    return state
-
-
-def _run_solver(state: TaskState) -> TaskState:
-    solver = add_messages_from_metadata()
-    return asyncio.run(solver(state, _noop_generate))
-
-
-def _meta(messages_list: list[dict]) -> dict:
-    return {"_stimulus": {"messages": messages_list}}
-
-
-def test_appends_single_user_string_message():
-    state = _state(metadata=_meta([{"role": "user", "content": "hello"}]))
-
-    new_state = _run_solver(state)
-
-    assert len(new_state.messages) == 1
-    msg = new_state.messages[0]
-    assert isinstance(msg, ChatMessageUser)
-    assert msg.content == "hello"
-
-
-@pytest.mark.parametrize(
-    "role,expected_cls",
-    [
-        ("system", ChatMessageSystem),
-        ("user", ChatMessageUser),
-        ("assistant", ChatMessageAssistant),
-        ("tool", ChatMessageTool),
-    ],
-)
-def test_role_to_class_mapping(role, expected_cls):
-    state = _state(metadata=_meta([{"role": role, "content": "x"}]))
-
-    new_state = _run_solver(state)
-
-    assert isinstance(new_state.messages[0], expected_cls)
-    assert new_state.messages[0].role == role
-    assert new_state.messages[0].content == "x"
-
-
-def test_preserves_message_order():
-    msgs = [
-        {"role": "system", "content": "a"},
-        {"role": "user", "content": "b"},
-        {"role": "assistant", "content": "c"},
-        {"role": "user", "content": "d"},
-    ]
-    state = _state(metadata=_meta(msgs))
-
-    new_state = _run_solver(state)
-
-    assert [m.role for m in new_state.messages] == [
-        "system",
-        "user",
-        "assistant",
-        "user",
-    ]
-    assert [m.content for m in new_state.messages] == ["a", "b", "c", "d"]
-
-
-def test_appends_after_existing_messages():
-    seed = ChatMessageUser(content="seed")
-    state = _state(
-        messages=[seed],
-        metadata=_meta(
-            [
-                {"role": "assistant", "content": "follow1"},
-                {"role": "user", "content": "follow2"},
-            ]
-        ),
-    )
-
-    new_state = _run_solver(state)
-
-    assert len(new_state.messages) == 3
-    assert new_state.messages[0].content == "seed"
-    assert isinstance(new_state.messages[0], ChatMessageUser)
-    assert new_state.messages[1].content == "follow1"
-    assert isinstance(new_state.messages[1], ChatMessageAssistant)
-    assert new_state.messages[2].content == "follow2"
-    assert isinstance(new_state.messages[2], ChatMessageUser)
-
-
-def test_does_not_mutate_input_or_target():
-    state = _state(
-        input_="original input",
-        metadata=_meta([{"role": "user", "content": "x"}]),
-    )
-    target_before = state.target
-
-    new_state = _run_solver(state)
-
-    assert new_state.input == "original input"
-    assert new_state.target is target_before
-
-
-def test_string_content_remains_string():
-    state = _state(metadata=_meta([{"role": "user", "content": "plain text"}]))
-
-    new_state = _run_solver(state)
-
-    assert new_state.messages[0].content == "plain text"
-
-
-def test_text_content_part_becomes_ContentText():
-    state = _state(
-        metadata=_meta(
-            [{"role": "user", "content": [{"type": "text", "data": "hi"}]}]
-        )
-    )
-
-    new_state = _run_solver(state)
-
-    content = new_state.messages[0].content
-    assert isinstance(content, list)
-    assert len(content) == 1
-    assert isinstance(content[0], ContentText)
-    assert content[0].text == "hi"
-
-
-def test_image_content_part_becomes_ContentImage():
-    state = _state(
-        metadata=_meta(
-            [
-                {
-                    "role": "user",
-                    "content": [{"type": "image", "data": "assets/0001.png"}],
-                }
-            ]
-        )
-    )
-
-    new_state = _run_solver(state)
-
-    content = new_state.messages[0].content
-    assert isinstance(content, list)
-    assert len(content) == 1
-    assert isinstance(content[0], ContentImage)
-    assert content[0].image == "assets/0001.png"
-
-
-def test_mixed_content_parts_preserve_order():
-    state = _state(
-        metadata=_meta(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "data": "first"},
-                        {"type": "image", "data": "assets/foo.png"},
-                        {"type": "text", "data": "third"},
-                    ],
-                }
-            ]
-        )
-    )
-
-    new_state = _run_solver(state)
-
-    parts = new_state.messages[0].content
-    assert isinstance(parts, list)
-    assert [type(p) for p in parts] == [ContentText, ContentImage, ContentText]
-    assert parts[0].text == "first"
-    assert parts[1].image == "assets/foo.png"
-    assert parts[2].text == "third"
-
-
-def test_raises_when_stimulus_key_missing():
-    state = _state(metadata={})
-
-    with pytest.raises(Exception):
-        _run_solver(state)
-
-
-def test_raises_when_messages_key_missing():
-    state = _state(metadata={"_stimulus": {}})
-
-    with pytest.raises(Exception):
-        _run_solver(state)
-
-
-def test_raises_when_messages_empty_list():
-    state = _state(metadata={"_stimulus": {"messages": []}})
-
-    with pytest.raises(Exception):
-        _run_solver(state)
-
-
-def test_roundtrip_with_load_dataset(tmp_path: Path):
-    stim = _stimulus(
-        "s_0",
-        messages=[
-            Message(role="system", content="be precise"),
-            Message(
-                role="user",
-                content=[
-                    Content(type="text", data="describe"),
-                    Content(type="image", data="assets/foo.png"),
-                ],
-            ),
-            Message(role="assistant", content="ok"),
-        ],
-    )
-    out = _write(tmp_path, [stim])
-
-    sample = load_dataset(out)[0]
-    state = _state(
-        metadata=dict(sample.metadata),
-        messages=[],
-        sample_id=str(sample.id),
-        input_=sample.input if isinstance(sample.input, str) else "",
-    )
-
-    new_state = _run_solver(state)
-
-    assert [m.role for m in new_state.messages] == ["system", "user", "assistant"]
-    assert new_state.messages[0].content == "be precise"
-
-    user_content = new_state.messages[1].content
-    assert isinstance(user_content, list)
-    assert isinstance(user_content[0], ContentText)
-    assert user_content[0].text == "describe"
-    assert isinstance(user_content[1], ContentImage)
-    assert user_content[1].image == "assets/foo.png"
-
-    assert new_state.messages[2].content == "ok"

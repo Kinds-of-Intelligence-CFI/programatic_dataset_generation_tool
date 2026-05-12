@@ -2,9 +2,28 @@ import json
 from pathlib import Path
 from typing import Any
 
+from inspect_ai._util.content import (
+    Content as InspectContent,
+)
+from inspect_ai._util.content import (
+    ContentImage,
+    ContentText,
+)
 from inspect_ai.dataset import MemoryDataset, Sample
-from inspect_ai.model import ChatMessageSystem, ChatMessageAssistant, ChatMessageTool, ChatMessageUser, Content, ContentImage, ContentText
-from inspect_ai.solver import Generate, TaskState, solver
+from inspect_ai.model import (
+    ChatMessage,
+    ChatMessageAssistant,
+    ChatMessageSystem,
+    ChatMessageTool,
+    ChatMessageUser,
+)
+
+_ROLE_TO_CLASS: dict[str, type[ChatMessage]] = {
+    "system": ChatMessageSystem,
+    "user": ChatMessageUser,
+    "assistant": ChatMessageAssistant,
+    "tool": ChatMessageTool,
+}
 
 
 def load_dataset(path: str | Path) -> MemoryDataset:
@@ -33,17 +52,14 @@ def load_dataset(path: str | Path) -> MemoryDataset:
 
 def _record_to_sample(record: dict[str, Any], dataset_dir: Path) -> Sample:
     messages = record["messages"]
-    input_text = ""
-    if (
-        len(messages) == 1
-        and messages[0]["role"] == "user"
-        and isinstance(messages[0]["content"], str)
-    ):
-        input_text = messages[0]["content"]
+
+    if _is_single_user_text(messages):
+        sample_input: str | list[ChatMessage] = messages[0]["content"]
+    else:
+        sample_input = [_message_to_chat(m, dataset_dir) for m in messages]
 
     metadata: dict[str, Any] = {
         "_stimulus": {
-            "messages": messages,
             "spec": record["spec"],
             "validators_ran": record.get("validators_ran", []),
             "dataset_dir": str(dataset_dir),
@@ -53,51 +69,59 @@ def _record_to_sample(record: dict[str, Any], dataset_dir: Path) -> Sample:
 
     return Sample(
         id=record["sample_id"],
-        input=input_text,
+        input=sample_input,
         target=record["target"],
         metadata=metadata,
     )
 
 
-@solver
-def add_messages_from_metadata():
-    async def solve(state: TaskState, generate: Generate):
-        messages = state.metadata["_stimulus"]["messages"]
-        if not messages:
-            raise ValueError("_stimulus.messages is empty")
-        for message in messages:
-            content: str | list[Content] = []
-            role = message["role"]
-            if isinstance(message["content"], str):
-                content = message["content"]
-            else:
-                content = []
-                assert isinstance(message["content"], list)
-                for content_item in message["content"]:
-                    if content_item["type"] == "text":
-                        content.append(ContentText(text=content_item["data"]))
-                    elif content_item["type"] == "image":
-                        image_path = content_item["data"]
-                        dataset_dir = state.metadata["_stimulus"].get("dataset_dir")
-                        if dataset_dir:
-                            candidate = Path(dataset_dir) / image_path
-                            if candidate.is_file():
-                                image_path = str(candidate)
-                        content.append(ContentImage(image=image_path))
-                    else:
-                        raise ValueError(f"Unknown content type: {content_item['type']}")
-            
-            if role == "system":
-                message = ChatMessageSystem(content=content)
-            elif role == "user":
-                message = ChatMessageUser(content=content)
-            elif role == "assistant":
-                message = ChatMessageAssistant(content=content)
-            elif role == "tool":
-                message = ChatMessageTool(content=content)
-            else:
-                raise ValueError(f"Unknown message role: {role}")
-            state.messages.append(message)
+def _is_single_user_text(messages: list[dict[str, Any]]) -> bool:
+    return (
+        len(messages) == 1
+        and messages[0]["role"] == "user"
+        and isinstance(messages[0]["content"], str)
+    )
 
-        return state
-    return solve
+
+def _message_to_chat(message: dict[str, Any], dataset_dir: Path) -> ChatMessage:
+    role = message["role"]
+    cls = _ROLE_TO_CLASS.get(role)
+    if cls is None:
+        raise ValueError(f"Unknown message role: {role!r}")
+    content = message["content"]
+    if isinstance(content, str):
+        return cls(content=content)
+    parts = [_content_part_to_inspect(p, dataset_dir) for p in content]
+    return cls(content=parts)
+
+
+def _content_part_to_inspect(
+    part: dict[str, Any], dataset_dir: Path
+) -> InspectContent:
+    t = part.get("type")
+    if t == "text":
+        return ContentText(text=part["text"])
+    if t == "image":
+        return ContentImage(
+            image=_resolve_asset_path(part["image"], dataset_dir),
+            detail=part.get("detail", "auto"),
+        )
+    raise ValueError(f"Unknown content type in dataset: {t!r}")
+
+
+def _resolve_asset_path(image_ref: str, dataset_dir: Path) -> str:
+    """Turn an ``assets/...`` relative reference into an absolute path.
+
+    Pass URLs, data URIs, and absolute paths through unchanged. If the
+    relative path doesn't resolve to a file on disk, leave it as-is so
+    diagnostic errors point at the original reference.
+    """
+    if image_ref.startswith(("http://", "https://", "data:")):
+        return image_ref
+    candidate = Path(image_ref)
+    if candidate.is_absolute():
+        return image_ref
+    resolved = dataset_dir / candidate
+    if resolved.is_file():
+        return str(resolved)
+    return image_ref

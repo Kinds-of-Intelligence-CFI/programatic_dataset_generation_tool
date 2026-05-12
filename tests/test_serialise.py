@@ -7,7 +7,7 @@ from dataset.serialise import (
     stimulus_to_dict,
     to_jsonable,
 )
-from dataset.stimulus import Content, Message, Stimulus
+from dataset.stimulus import ContentImage, ContentText, Message, Stimulus
 from generation.generate import Spec
 
 
@@ -23,8 +23,11 @@ def _example_stimulus() -> Stimulus:
             Message(
                 role="user",
                 content=[
-                    Content(type="text", data="What does the cat see?"),
-                    Content(type="image", data="assets/sample_0001_grid.png"),
+                    ContentText(text="What does the cat see?"),
+                    ContentImage(
+                        image="assets/files/grid__a1b2c3d4e5f6.png",
+                        detail="high",
+                    ),
                 ],
             ),
         ],
@@ -64,9 +67,91 @@ def test_stimulus_round_trip_via_json():
     assert len(restored.messages) == len(original.messages)
     assert restored.messages[0].role == "system"
     assert restored.messages[0].content == "You are a careful reasoner."
-    assert isinstance(restored.messages[1].content, list)
-    assert restored.messages[1].content[1].type == "image"
-    assert restored.messages[1].content[1].data == "assets/sample_0001_grid.png"
+
+    user_content = restored.messages[1].content
+    assert isinstance(user_content, list)
+    assert isinstance(user_content[0], ContentText)
+    assert user_content[0].text == "What does the cat see?"
+    assert isinstance(user_content[1], ContentImage)
+    assert user_content[1].image == "assets/files/grid__a1b2c3d4e5f6.png"
+    assert user_content[1].detail == "high"
+
+
+def test_content_text_serialises_with_text_key():
+    s = Stimulus(
+        spec=Spec(),
+        messages=[Message(role="user", content=[ContentText(text="hi")])],
+        target="",
+    )
+    d = stimulus_to_dict(s)
+    assert d["messages"][0]["content"][0] == {"type": "text", "text": "hi"}
+
+
+def test_content_image_serialises_with_image_key_and_detail():
+    s = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[ContentImage(image="assets/files/foo.png", detail="low")],
+            )
+        ],
+        target="",
+    )
+    d = stimulus_to_dict(s)
+    assert d["messages"][0]["content"][0] == {
+        "type": "image",
+        "image": "assets/files/foo.png",
+        "detail": "low",
+    }
+
+
+def test_content_image_detail_defaults_to_auto():
+    c = ContentImage(image="assets/files/foo.png")
+    assert c.detail == "auto"
+
+
+def test_content_image_from_bytes_produces_data_uri():
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"fake"
+    c = ContentImage.from_bytes(png_bytes, suffix="png")
+    assert c.image.startswith("data:image/png;base64,")
+    assert c.detail == "auto"
+
+
+def test_content_image_from_bytes_round_trip_preserves_data_uri():
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"abc"
+    original = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[ContentImage.from_bytes(png_bytes, suffix="png")],
+            )
+        ],
+        target="",
+    )
+    restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
+    img = restored.messages[0].content[0]
+    assert isinstance(img, ContentImage)
+    assert img.image == original.messages[0].content[0].image
+
+
+def test_stimulus_from_dict_rejects_unknown_content_type():
+    payload = {
+        "sample_id": "s_0",
+        "spec": {"capabilities": [], "params": {}},
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "video", "video": "/tmp/x.mp4"}],
+            }
+        ],
+        "target": "",
+        "validators_ran": [],
+        "metadata": {},
+    }
+    with pytest.raises(ValueError, match="video"):
+        stimulus_from_dict(payload)
 
 
 def test_stimulus_capabilities_serialise_as_sorted_list():

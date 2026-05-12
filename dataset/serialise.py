@@ -1,7 +1,7 @@
 from dataclasses import fields, is_dataclass
 from typing import Any
 
-from dataset.stimulus import Content, Message, Stimulus
+from dataset.stimulus import Content, ContentImage, ContentText, Message, Stimulus
 from generation.generate import Spec
 
 _JSON_PRIMITIVES = (str, int, float, bool, type(None))
@@ -46,5 +46,17 @@ def stimulus_from_dict(d: dict) -> Stimulus:
 def _message_from_dict(d: dict) -> Message:
     content = d["content"]
     if isinstance(content, list):
-        content = [Content(type=c["type"], data=c["data"]) for c in content]
+        content = [_content_from_dict(c) for c in content]
     return Message(role=d["role"], content=content)
+
+
+def _content_from_dict(d: dict) -> Content:
+    t = d.get("type")
+    if t == "text":
+        return ContentText(text=d["text"])
+    if t == "image":
+        return ContentImage(
+            image=d["image"],
+            detail=d.get("detail", "auto"),
+        )
+    raise ValueError(f"Unknown content type: {t!r}")
