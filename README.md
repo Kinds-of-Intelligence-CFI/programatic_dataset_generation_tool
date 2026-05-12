@@ -17,7 +17,7 @@ Additionally, we provide tools to load your datasets into `inspect_ai` and provi
 
 In this section we will cover a variety of examples of how to implement different experiments using this tool. The code for each of these can be found in `./example`.
 
-### Simple QA
+### Simple QA (example workflow)
 
 This example is about a simple question answer experiment. These types of experiment are not well suited to this type of dataset generation (unless you generate the questions using a knowledge base such as wiki data) however the point of this example is to show you the features of the tool without complicated generation logic and show a full run through of the process.
 
@@ -153,3 +153,27 @@ def simple_qa_task(dataset_dir: str)->Task:
         scorer=includes(),
     )
 ```
+
+### Rotating figures (using images example)
+
+In this example we will focus on how to use images in your stimuli. This example is based on the rotating figure task created for the visual perspective taking paper and the details of the experiment are not important, all you need to know is that we want to show the language model an image of a person in a room along with some numbers on the floor. In your own experiment you can create your images however you want, in our case we use the PIL library to arrange clipart images of a person and a symbol on the ground infront of them, but anything could work here.
+
+
+#### Adding images to messages
+Once we have the images and anything we need for the stimulus, such as the question the user wants to ask, we can then add them to the messages field of the stimulus. To add an image to a message you set the content field of the message to an object of type `ContentImage` which has a similar format to inspect. 
+```python
+message = Message(
+                role="user",
+                content=[
+                    ContentText(text=prompt),
+                    ContentImage.from_bytes(buf.getvalue(), suffix="jpg"),
+                ],
+            ),
+```
+the data for an image can either come from a string of bytes including the data of the image, a path to a file containing the image or a URL pointing to the image. The same is true for each of the other datatypes supported by the tool but images are the easiest place to get started for most people. Additionally, when the sample is finished being generated and passes all the validators, each image (or other content) is then saved to the dataset under the assets folder and the uri changed to point to the saved file. Byte strings are saved to the `inline` subfolder and paths to files are coppied to `files`. Content from URLs is allowed but is not coppied to the dataset for security reasons. 
+
+
+#### Adding arbitry files
+
+Sometimes when creating a dataset you might want to add some files to the dataset that are not part of any messages but are needed during evaluation. An example of this might be if you have a docker file for each sample defining the environment the agent acts in. For these situations you can add the file yourself during the generate function using the context variable `current_output_dir()` to get the output path of the dataset. We reccomend avoiding this if possible as you will need to handle file collisons and cleanup if the sample fails to generate or pass validation. However the option exists for those usecases where there are no other options.
+
