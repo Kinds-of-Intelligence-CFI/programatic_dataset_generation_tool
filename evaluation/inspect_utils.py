@@ -6,8 +6,11 @@ from inspect_ai._util.content import (
     Content as InspectContent,
 )
 from inspect_ai._util.content import (
+    ContentAudio,
+    ContentDocument,
     ContentImage,
     ContentText,
+    ContentVideo,
 )
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.model import (
@@ -106,6 +109,25 @@ def _content_part_to_inspect(
             image=_resolve_asset_path(part["image"], dataset_dir),
             detail=part.get("detail", "auto"),
         )
+    if t == "audio":
+        return ContentAudio(
+            audio=_resolve_asset_path(part["audio"], dataset_dir),
+            format=part["format"],
+        )
+    if t == "video":
+        return ContentVideo(
+            video=_resolve_asset_path(part["video"], dataset_dir),
+            format=part["format"],
+        )
+    if t == "document":
+        doc_kwargs: dict[str, Any] = {
+            "document": _resolve_asset_path(part["document"], dataset_dir),
+        }
+        if part.get("filename") is not None:
+            doc_kwargs["filename"] = part["filename"]
+        if part.get("mime_type") is not None:
+            doc_kwargs["mime_type"] = part["mime_type"]
+        return ContentDocument(**doc_kwargs)
     raise ValueError(f"Unknown content type in dataset: {t!r}")
 
 

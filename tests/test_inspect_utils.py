@@ -2,8 +2,11 @@ import json
 from pathlib import Path
 
 import pytest
+from inspect_ai._util.content import ContentAudio as InspectContentAudio
+from inspect_ai._util.content import ContentDocument as InspectContentDocument
 from inspect_ai._util.content import ContentImage as InspectContentImage
 from inspect_ai._util.content import ContentText as InspectContentText
+from inspect_ai._util.content import ContentVideo as InspectContentVideo
 from inspect_ai.dataset import MemoryDataset
 from inspect_ai.model import (
     ChatMessageAssistant,
@@ -12,7 +15,15 @@ from inspect_ai.model import (
     ChatMessageUser,
 )
 
-from dataset.stimulus import ContentImage, ContentText, Message, Stimulus
+from dataset.stimulus import (
+    ContentAudio,
+    ContentDocument,
+    ContentImage,
+    ContentText,
+    ContentVideo,
+    Message,
+    Stimulus,
+)
 from dataset.writer import write_dataset
 from evaluation.inspect_utils import load_dataset
 from generation.generate import Spec
@@ -314,6 +325,109 @@ def test_roundtrip_inline_image_resolves_to_real_file_on_disk(tmp_path: Path):
     assert isinstance(image, InspectContentImage)
     assert Path(image.image).is_absolute()
     assert Path(image.image).read_bytes() == png_bytes
+
+
+# ---- audio / video / document load paths ------------------------------------
+
+
+def test_load_audio_via_from_bytes_resolves_to_typed_inspect_content(tmp_path: Path):
+    wav_bytes = b"RIFF\x00\x00\x00\x00WAVEfmtfake"
+    stim = _stimulus(
+        "s_audio",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="transcribe"),
+                    ContentAudio.from_bytes(wav_bytes, format="wav"),
+                ],
+            )
+        ],
+    )
+    out = _write(tmp_path, [stim])
+
+    sample = load_dataset(out)[0]
+    parts = sample.input[0].content
+    assert isinstance(parts[1], InspectContentAudio)
+    assert Path(parts[1].audio).is_absolute()
+    assert Path(parts[1].audio).read_bytes() == wav_bytes
+    assert parts[1].format == "wav"
+
+
+def test_load_video_via_from_bytes_resolves_to_typed_inspect_content(tmp_path: Path):
+    mp4_bytes = b"\x00\x00\x00\x18ftypmp42fake"
+    stim = _stimulus(
+        "s_video",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="describe"),
+                    ContentVideo.from_bytes(mp4_bytes, format="mp4"),
+                ],
+            )
+        ],
+    )
+    out = _write(tmp_path, [stim])
+
+    sample = load_dataset(out)[0]
+    parts = sample.input[0].content
+    assert isinstance(parts[1], InspectContentVideo)
+    assert Path(parts[1].video).is_absolute()
+    assert Path(parts[1].video).read_bytes() == mp4_bytes
+    assert parts[1].format == "mp4"
+
+
+def test_load_document_via_from_bytes_resolves_to_typed_inspect_content(tmp_path: Path):
+    pdf_bytes = b"%PDF-1.4 fake"
+    stim = _stimulus(
+        "s_doc",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="summarise"),
+                    ContentDocument.from_bytes(
+                        pdf_bytes, suffix="pdf", filename="report.pdf"
+                    ),
+                ],
+            )
+        ],
+    )
+    out = _write(tmp_path, [stim])
+
+    sample = load_dataset(out)[0]
+    parts = sample.input[0].content
+    assert isinstance(parts[1], InspectContentDocument)
+    assert Path(parts[1].document).is_absolute()
+    assert Path(parts[1].document).read_bytes() == pdf_bytes
+    assert parts[1].filename == "report.pdf"
+    assert parts[1].mime_type == "application/pdf"
+
+
+def test_load_document_without_optional_fields(tmp_path: Path):
+    stim = _stimulus(
+        "s_doc",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentText(text="hi"),
+                    ContentDocument(document="assets/files/x__abcdefabcdef.pdf"),
+                ],
+            )
+        ],
+    )
+    out = _write(tmp_path, [stim])
+    # Place a stub so resolution finds something.
+    fake = out / "assets" / "files" / "x__abcdefabcdef.pdf"
+    fake.parent.mkdir(parents=True, exist_ok=True)
+    fake.write_bytes(b"%PDF-1.4")
+
+    sample = load_dataset(out)[0]
+    part = sample.input[0].content[1]
+    assert isinstance(part, InspectContentDocument)
+    assert Path(part.document).is_absolute()
 
 
 # ---- error paths ------------------------------------------------------------

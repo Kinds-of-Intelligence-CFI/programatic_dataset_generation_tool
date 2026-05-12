@@ -10,7 +10,16 @@ from pathlib import Path
 from typing import Iterable
 
 from dataset.serialise import stimulus_to_dict, to_jsonable
-from dataset.stimulus import Content, ContentImage, ContentText, Message, Stimulus
+from dataset.stimulus import (
+    Content,
+    ContentAudio,
+    ContentDocument,
+    ContentImage,
+    ContentText,
+    ContentVideo,
+    Message,
+    Stimulus,
+)
 from generation.generate import Spec
 
 _PACKAGE_NAME = "programatic-dataset-generation-tool"
@@ -70,28 +79,68 @@ def normalize_content(
       - any other path string    -> read bytes, hash, dedup via ``cache``,
         write to ``assets/files/{stem}__{hash[:12]}.{ext}`` if new.
 
-    ``ContentText`` is returned unchanged.
+    ``ContentText`` is returned unchanged. All non-text variants share the
+    same string-reference dispatch via ``_normalize_string_ref``.
     """
     if isinstance(content, ContentText):
         return content
+
+    def _rewrite(ref: str) -> str:
+        return _normalize_string_ref(
+            ref,
+            sample_id=sample_id,
+            message_index=message_index,
+            content_index=content_index,
+            output_dir=output_dir,
+            cache=cache,
+        )
+
     if isinstance(content, ContentImage):
-        image_str = content.image
-        if _is_data_uri(image_str):
-            rel = _write_inline_from_data_uri(
-                image_str,
-                output_dir=output_dir,
-                sample_id=sample_id,
-                message_index=message_index,
-                content_index=content_index,
-            )
-            return replace(content, image=rel)
-        if _is_http_url(image_str):
-            return content
-        if _is_already_relative_asset(image_str):
-            return content
-        rel = _copy_path_to_files(image_str, output_dir=output_dir, cache=cache)
-        return replace(content, image=rel)
+        return replace(content, image=_rewrite(content.image))
+    if isinstance(content, ContentAudio):
+        return replace(content, audio=_rewrite(content.audio))
+    if isinstance(content, ContentVideo):
+        return replace(content, video=_rewrite(content.video))
+    if isinstance(content, ContentDocument):
+        return replace(content, document=_rewrite(content.document))
     raise TypeError(f"Unknown Content variant: {type(content).__name__}")
+
+
+def _normalize_string_ref(
+    ref: str,
+    *,
+    sample_id: str,
+    message_index: int,
+    content_index: int,
+    output_dir: Path,
+    cache: AssetCache,
+) -> str:
+    if _is_data_uri(ref):
+        return _write_inline_from_data_uri(
+            ref,
+            output_dir=output_dir,
+            sample_id=sample_id,
+            message_index=message_index,
+            content_index=content_index,
+        )
+    if _is_http_url(ref):
+        return ref
+    if _is_already_relative_asset(ref):
+        return ref
+    return _copy_path_to_files(ref, output_dir=output_dir, cache=cache)
+
+
+def _media_ref(content: Content) -> str | None:
+    """The data-bearing string for a media variant, or None for text."""
+    if isinstance(content, ContentImage):
+        return content.image
+    if isinstance(content, ContentAudio):
+        return content.audio
+    if isinstance(content, ContentVideo):
+        return content.video
+    if isinstance(content, ContentDocument):
+        return content.document
+    return None
 
 
 def write_jsonl(
@@ -179,7 +228,7 @@ def _normalize_stimulus(
             continue
         new_content: list[Content] = []
         needs_sample_id_check = any(
-            isinstance(c, ContentImage) and _is_data_uri(c.image)
+            (ref := _media_ref(c)) is not None and _is_data_uri(ref)
             for c in message.content
         )
         if needs_sample_id_check:
@@ -251,7 +300,18 @@ def _copy_path_to_files(
     )
 
 
+_MIME_SUFFIX_OVERRIDES = {
+    # stdlib's mimetypes registers .wav as audio/x-wav (or audio/vnd.wave on
+    # some Pythons) and so doesn't recognise the de-facto audio/wav. Inspect
+    # uses audio/wav in its own examples; map it back to .wav so user-supplied
+    # data URIs and our own ContentAudio.from_bytes both round-trip cleanly.
+    "audio/wav": "wav",
+}
+
+
 def _suffix_for_mime(mime_type: str) -> str:
+    if mime_type in _MIME_SUFFIX_OVERRIDES:
+        return _MIME_SUFFIX_OVERRIDES[mime_type]
     guessed = mimetypes.guess_extension(mime_type)
     if guessed:
         return guessed.lstrip(".")

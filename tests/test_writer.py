@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from dataset.stimulus import ContentImage, ContentText, Message, Stimulus
+from dataset.stimulus import (
+    ContentAudio,
+    ContentDocument,
+    ContentImage,
+    ContentText,
+    ContentVideo,
+    Message,
+    Stimulus,
+)
 from dataset.writer import (
     AssetCache,
     normalize_content,
@@ -143,6 +151,133 @@ def test_normalize_missing_source_file_raises(tmp_path: Path):
     c = ContentImage(image=str(tmp_path / "does_not_exist.png"))
     with pytest.raises(FileNotFoundError, match="does_not_exist.png"):
         _normalize(c, tmp_path)
+
+
+# ---- normalize_content for audio / video / document ------------------------
+
+FAKE_WAV = b"RIFF\x00\x00\x00\x00WAVEfmtfake"
+FAKE_WAV_B64 = base64.b64encode(FAKE_WAV).decode("ascii")
+DATA_URI_WAV = f"data:audio/wav;base64,{FAKE_WAV_B64}"
+
+FAKE_MP4 = b"\x00\x00\x00\x18ftypmp42fake"
+FAKE_MP4_B64 = base64.b64encode(FAKE_MP4).decode("ascii")
+DATA_URI_MP4 = f"data:video/mp4;base64,{FAKE_MP4_B64}"
+
+FAKE_PDF = b"%PDF-1.4 fake"
+FAKE_PDF_B64 = base64.b64encode(FAKE_PDF).decode("ascii")
+DATA_URI_PDF = f"data:application/pdf;base64,{FAKE_PDF_B64}"
+
+
+def test_normalize_audio_data_uri_writes_inline_wav_and_preserves_format(tmp_path: Path):
+    c = ContentAudio(audio=DATA_URI_WAV, format="wav")
+    out = _normalize(c, tmp_path, sample_id="s_001", msg=0, idx=2)
+    assert isinstance(out, ContentAudio)
+    assert out.audio == "assets/inline/s_001_0_2.wav"
+    assert (tmp_path / out.audio).read_bytes() == FAKE_WAV
+    assert out.format == "wav"
+
+
+def test_normalize_video_data_uri_writes_inline_mp4_and_preserves_format(tmp_path: Path):
+    c = ContentVideo(video=DATA_URI_MP4, format="mp4")
+    out = _normalize(c, tmp_path, sample_id="s_001", msg=0, idx=1)
+    assert isinstance(out, ContentVideo)
+    assert out.video == "assets/inline/s_001_0_1.mp4"
+    assert (tmp_path / out.video).read_bytes() == FAKE_MP4
+    assert out.format == "mp4"
+
+
+def test_normalize_document_data_uri_writes_inline_pdf_and_preserves_fields(tmp_path: Path):
+    c = ContentDocument(
+        document=DATA_URI_PDF, filename="report.pdf", mime_type="application/pdf"
+    )
+    out = _normalize(c, tmp_path, sample_id="s_001", msg=0, idx=0)
+    assert isinstance(out, ContentDocument)
+    assert out.document == "assets/inline/s_001_0_0.pdf"
+    assert (tmp_path / out.document).read_bytes() == FAKE_PDF
+    assert out.filename == "report.pdf"
+    assert out.mime_type == "application/pdf"
+
+
+def test_normalize_audio_path_copies_to_files_with_hash_suffix(tmp_path: Path):
+    src = tmp_path / "src" / "clip.wav"
+    src.parent.mkdir()
+    src.write_bytes(FAKE_WAV)
+
+    out = _normalize(ContentAudio(audio=str(src), format="wav"), tmp_path)
+    assert isinstance(out, ContentAudio)
+    h = hashlib.sha256(FAKE_WAV).hexdigest()[:12]
+    assert out.audio == f"assets/files/clip__{h}.wav"
+    assert (tmp_path / out.audio).read_bytes() == FAKE_WAV
+    assert out.format == "wav"
+
+
+def test_normalize_video_path_copies_to_files_with_hash_suffix(tmp_path: Path):
+    src = tmp_path / "src" / "scene.mp4"
+    src.parent.mkdir()
+    src.write_bytes(FAKE_MP4)
+
+    out = _normalize(ContentVideo(video=str(src), format="mp4"), tmp_path)
+    assert isinstance(out, ContentVideo)
+    h = hashlib.sha256(FAKE_MP4).hexdigest()[:12]
+    assert out.video == f"assets/files/scene__{h}.mp4"
+    assert out.format == "mp4"
+
+
+def test_normalize_document_path_copies_to_files_preserving_optional_fields(tmp_path: Path):
+    src = tmp_path / "src" / "doc.pdf"
+    src.parent.mkdir()
+    src.write_bytes(FAKE_PDF)
+
+    out = _normalize(
+        ContentDocument(
+            document=str(src), filename="doc.pdf", mime_type="application/pdf"
+        ),
+        tmp_path,
+    )
+    assert isinstance(out, ContentDocument)
+    h = hashlib.sha256(FAKE_PDF).hexdigest()[:12]
+    assert out.document == f"assets/files/doc__{h}.pdf"
+    assert out.filename == "doc.pdf"
+    assert out.mime_type == "application/pdf"
+
+
+def test_normalize_audio_https_url_unchanged(tmp_path: Path):
+    c = ContentAudio(audio="https://example.com/clip.wav", format="wav")
+    out = _normalize(c, tmp_path)
+    assert out.audio == "https://example.com/clip.wav"
+    assert out.format == "wav"
+    assert not (tmp_path / "assets").exists()
+
+
+def test_normalize_video_already_relative_assets_path_is_idempotent(tmp_path: Path):
+    c = ContentVideo(video="assets/files/clip__abcdefabcdef.mp4", format="mp4")
+    out = _normalize(c, tmp_path)
+    assert out.video == "assets/files/clip__abcdefabcdef.mp4"
+    assert out.format == "mp4"
+
+
+def test_normalize_document_already_relative_assets_path_is_idempotent(tmp_path: Path):
+    c = ContentDocument(document="assets/inline/s_0_0_0.pdf")
+    out = _normalize(c, tmp_path)
+    assert isinstance(out, ContentDocument)
+    assert out.document == "assets/inline/s_0_0_0.pdf"
+
+
+def test_normalize_dedups_across_modalities_when_bytes_match(tmp_path: Path):
+    # Same bytes appearing under two different modalities should produce one
+    # file in assets/files/. The cache is hash-keyed, not type-keyed.
+    audio_src = tmp_path / "src" / "a.wav"
+    video_src = tmp_path / "src" / "v.mp4"
+    audio_src.parent.mkdir()
+    audio_src.write_bytes(FAKE_WAV)
+    video_src.write_bytes(FAKE_WAV)
+
+    cache = AssetCache()
+    a = _normalize(ContentAudio(audio=str(audio_src), format="wav"), tmp_path, cache=cache)
+    v = _normalize(ContentVideo(video=str(video_src), format="mp4"), tmp_path, cache=cache)
+    assert a.audio == v.video
+    files_dir = tmp_path / "assets" / "files"
+    assert len(list(files_dir.iterdir())) == 1
 
 
 # ---- write_jsonl / write_dataset --------------------------------------------

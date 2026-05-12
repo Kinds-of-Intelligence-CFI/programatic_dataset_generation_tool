@@ -1,7 +1,16 @@
 from dataclasses import fields, is_dataclass
 from typing import Any
 
-from dataset.stimulus import Content, ContentImage, ContentText, Message, Stimulus
+from dataset.stimulus import (
+    Content,
+    ContentAudio,
+    ContentDocument,
+    ContentImage,
+    ContentText,
+    ContentVideo,
+    Message,
+    Stimulus,
+)
 from generation.generate import Spec
 
 _JSON_PRIMITIVES = (str, int, float, bool, type(None))
@@ -58,5 +67,15 @@ def _content_from_dict(d: dict) -> Content:
         return ContentImage(
             image=d["image"],
             detail=d.get("detail", "auto"),
+        )
+    if t == "audio":
+        return ContentAudio(audio=d["audio"], format=d["format"])
+    if t == "video":
+        return ContentVideo(video=d["video"], format=d["format"])
+    if t == "document":
+        return ContentDocument(
+            document=d["document"],
+            filename=d.get("filename"),
+            mime_type=d.get("mime_type"),
         )
     raise ValueError(f"Unknown content type: {t!r}")

@@ -7,7 +7,15 @@ from dataset.serialise import (
     stimulus_to_dict,
     to_jsonable,
 )
-from dataset.stimulus import ContentImage, ContentText, Message, Stimulus
+from dataset.stimulus import (
+    ContentAudio,
+    ContentDocument,
+    ContentImage,
+    ContentText,
+    ContentVideo,
+    Message,
+    Stimulus,
+)
 from generation.generate import Spec
 
 
@@ -136,6 +144,236 @@ def test_content_image_from_bytes_round_trip_preserves_data_uri():
     assert img.image == original.messages[0].content[0].image
 
 
+# ---- ContentAudio -----------------------------------------------------------
+
+
+def test_content_audio_serialises_with_audio_key_and_format():
+    s = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[ContentAudio(audio="assets/files/clip.wav", format="wav")],
+            )
+        ],
+        target="",
+    )
+    d = stimulus_to_dict(s)
+    assert d["messages"][0]["content"][0] == {
+        "type": "audio",
+        "audio": "assets/files/clip.wav",
+        "format": "wav",
+    }
+
+
+def test_content_audio_round_trip_preserves_format():
+    original = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[ContentAudio(audio="assets/files/x.mp3", format="mp3")],
+            )
+        ],
+        target="",
+    )
+    restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
+    part = restored.messages[0].content[0]
+    assert isinstance(part, ContentAudio)
+    assert part.audio == "assets/files/x.mp3"
+    assert part.format == "mp3"
+
+
+def test_content_audio_from_bytes_produces_data_uri():
+    c = ContentAudio.from_bytes(b"RIFF....fakewav", format="wav")
+    assert c.audio.startswith("data:audio/wav;base64,")
+    assert c.format == "wav"
+
+
+def test_content_audio_from_bytes_mp3_uses_audio_mpeg_mime():
+    c = ContentAudio.from_bytes(b"\xff\xfb\x00\x00fake", format="mp3")
+    assert c.audio.startswith("data:audio/mpeg;base64,")
+    assert c.format == "mp3"
+
+
+def test_stimulus_from_dict_rejects_audio_without_format():
+    payload = {
+        "sample_id": "s_0",
+        "spec": {"capabilities": [], "params": {}},
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "audio", "audio": "x.wav"}],
+            }
+        ],
+        "target": "",
+        "validators_ran": [],
+        "metadata": {},
+    }
+    with pytest.raises(KeyError, match="format"):
+        stimulus_from_dict(payload)
+
+
+# ---- ContentVideo -----------------------------------------------------------
+
+
+def test_content_video_serialises_with_video_key_and_format():
+    s = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[ContentVideo(video="assets/files/clip.mp4", format="mp4")],
+            )
+        ],
+        target="",
+    )
+    d = stimulus_to_dict(s)
+    assert d["messages"][0]["content"][0] == {
+        "type": "video",
+        "video": "assets/files/clip.mp4",
+        "format": "mp4",
+    }
+
+
+def test_content_video_round_trip_preserves_format():
+    original = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[ContentVideo(video="assets/files/x.mov", format="mov")],
+            )
+        ],
+        target="",
+    )
+    restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
+    part = restored.messages[0].content[0]
+    assert isinstance(part, ContentVideo)
+    assert part.video == "assets/files/x.mov"
+    assert part.format == "mov"
+
+
+def test_content_video_from_bytes_produces_data_uri():
+    c = ContentVideo.from_bytes(b"\x00\x00\x00\x18ftypmp42", format="mp4")
+    assert c.video.startswith("data:video/mp4;base64,")
+    assert c.format == "mp4"
+
+
+def test_content_video_from_bytes_mov_uses_quicktime_mime():
+    c = ContentVideo.from_bytes(b"fakequicktimebytes", format="mov")
+    assert c.video.startswith("data:video/quicktime;base64,")
+    assert c.format == "mov"
+
+
+def test_stimulus_from_dict_rejects_video_without_format():
+    payload = {
+        "sample_id": "s_0",
+        "spec": {"capabilities": [], "params": {}},
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "video", "video": "x.mp4"}],
+            }
+        ],
+        "target": "",
+        "validators_ran": [],
+        "metadata": {},
+    }
+    with pytest.raises(KeyError, match="format"):
+        stimulus_from_dict(payload)
+
+
+# ---- ContentDocument --------------------------------------------------------
+
+
+def test_content_document_serialises_with_all_fields():
+    s = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentDocument(
+                        document="assets/files/report.pdf",
+                        filename="report.pdf",
+                        mime_type="application/pdf",
+                    )
+                ],
+            )
+        ],
+        target="",
+    )
+    d = stimulus_to_dict(s)
+    assert d["messages"][0]["content"][0] == {
+        "type": "document",
+        "document": "assets/files/report.pdf",
+        "filename": "report.pdf",
+        "mime_type": "application/pdf",
+    }
+
+
+def test_content_document_round_trip_preserves_optional_fields():
+    original = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ContentDocument(
+                        document="assets/files/spec.pdf",
+                        filename="spec.pdf",
+                        mime_type="application/pdf",
+                    )
+                ],
+            )
+        ],
+        target="",
+    )
+    restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
+    part = restored.messages[0].content[0]
+    assert isinstance(part, ContentDocument)
+    assert part.document == "assets/files/spec.pdf"
+    assert part.filename == "spec.pdf"
+    assert part.mime_type == "application/pdf"
+
+
+def test_content_document_optional_fields_default_to_none():
+    c = ContentDocument(document="assets/files/x.pdf")
+    assert c.filename is None
+    assert c.mime_type is None
+
+
+def test_content_document_round_trip_with_only_document_field():
+    original = Stimulus(
+        spec=Spec(),
+        messages=[
+            Message(
+                role="user",
+                content=[ContentDocument(document="assets/files/raw.pdf")],
+            )
+        ],
+        target="",
+    )
+    restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
+    part = restored.messages[0].content[0]
+    assert isinstance(part, ContentDocument)
+    assert part.filename is None
+    assert part.mime_type is None
+
+
+def test_content_document_from_bytes_populates_mime_type():
+    c = ContentDocument.from_bytes(b"%PDF-1.4 fake", suffix="pdf")
+    assert c.document.startswith("data:application/pdf;base64,")
+    assert c.mime_type == "application/pdf"
+    assert c.filename is None
+
+
+def test_content_document_from_bytes_keeps_filename_when_provided():
+    c = ContentDocument.from_bytes(b"%PDF-1.4", suffix="pdf", filename="report.pdf")
+    assert c.filename == "report.pdf"
+
+
 def test_stimulus_from_dict_rejects_unknown_content_type():
     payload = {
         "sample_id": "s_0",
@@ -143,14 +381,14 @@ def test_stimulus_from_dict_rejects_unknown_content_type():
         "messages": [
             {
                 "role": "user",
-                "content": [{"type": "video", "video": "/tmp/x.mp4"}],
+                "content": [{"type": "reasoning", "reasoning": "..."}],
             }
         ],
         "target": "",
         "validators_ran": [],
         "metadata": {},
     }
-    with pytest.raises(ValueError, match="video"):
+    with pytest.raises(ValueError, match="reasoning"):
         stimulus_from_dict(payload)
 
 

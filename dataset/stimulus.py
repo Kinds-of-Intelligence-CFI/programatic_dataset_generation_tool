@@ -31,7 +31,69 @@ class ContentImage:
         return cls(image=f"data:{mime};base64,{b64}", detail=detail)
 
 
-Content = ContentText | ContentImage
+@dataclass
+class ContentAudio:
+    audio: str
+    format: Literal["wav", "mp3"]
+    type: Literal["audio"] = "audio"
+
+    @classmethod
+    def from_bytes(
+        cls,
+        data: bytes,
+        *,
+        format: Literal["wav", "mp3"],
+    ) -> "ContentAudio":
+        mime = {"wav": "audio/wav", "mp3": "audio/mpeg"}[format]
+        b64 = base64.b64encode(data).decode("ascii")
+        return cls(audio=f"data:{mime};base64,{b64}", format=format)
+
+
+@dataclass
+class ContentVideo:
+    video: str
+    format: Literal["mp4", "mpeg", "mov"]
+    type: Literal["video"] = "video"
+
+    @classmethod
+    def from_bytes(
+        cls,
+        data: bytes,
+        *,
+        format: Literal["mp4", "mpeg", "mov"],
+    ) -> "ContentVideo":
+        mime = {"mp4": "video/mp4", "mpeg": "video/mpeg", "mov": "video/quicktime"}[format]
+        b64 = base64.b64encode(data).decode("ascii")
+        return cls(video=f"data:{mime};base64,{b64}", format=format)
+
+
+@dataclass
+class ContentDocument:
+    document: str
+    type: Literal["document"] = "document"
+    filename: str | None = None
+    mime_type: str | None = None
+
+    @classmethod
+    def from_bytes(
+        cls,
+        data: bytes,
+        *,
+        suffix: str,
+        filename: str | None = None,
+    ) -> "ContentDocument":
+        mime = mimetypes.types_map.get(
+            f".{suffix.lstrip('.')}", "application/octet-stream"
+        )
+        b64 = base64.b64encode(data).decode("ascii")
+        return cls(
+            document=f"data:{mime};base64,{b64}",
+            filename=filename,
+            mime_type=mime,
+        )
+
+
+Content = ContentText | ContentImage | ContentAudio | ContentVideo | ContentDocument
 
 
 @dataclass
