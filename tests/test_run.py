@@ -8,7 +8,7 @@ import pytest
 
 from dataset.stimulus import Message, Stimulus
 from generation.generate import Spec
-from generation.runner import run
+from generation.runner import current_output_dir, run
 from generation.validation import (
     ValidationError,
     _clear_registry,
@@ -208,3 +208,39 @@ def test_run_default_name_falls_back_to_output_dir(tmp_path: Path):
     run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0)
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["name"] == "my_dataset"
+
+
+def test_generate_fn_can_read_current_output_dir(tmp_path: Path):
+    def generator(spec: Spec, rng: random.Random) -> Stimulus:
+        seen = current_output_dir()
+        stimulus = _trivial_generator(spec, rng)
+        stimulus.metadata = {"seen_output_dir": str(seen)}
+        return stimulus
+
+    specs = [Spec(params={"i": i}) for i in range(4)]
+    out = tmp_path / "ds"
+    run(generator, specs, n_reps=2, output_dir=out, seed=0, max_workers=4)
+
+    records = _read_jsonl(out / "stimuli.jsonl")
+    assert records
+    assert all(r["metadata"]["seen_output_dir"] == str(out) for r in records)
+
+
+def test_validator_can_read_current_output_dir(tmp_path: Path):
+    seen: list[Path] = []
+
+    @validates(name="see_output_dir", capability="*")
+    def see_output_dir(stimulus, spec):
+        seen.append(current_output_dir())
+
+    specs = [Spec(params={"i": i}) for i in range(3)]
+    out = tmp_path / "ds"
+    run(_trivial_generator, specs, n_reps=2, output_dir=out, seed=0, max_workers=2)
+
+    assert len(seen) == 3 * 2
+    assert all(p == out for p in seen)
+
+
+def test_current_output_dir_outside_run_raises():
+    with pytest.raises(RuntimeError, match="current_output_dir"):
+        current_output_dir()

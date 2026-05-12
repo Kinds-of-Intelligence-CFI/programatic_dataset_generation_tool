@@ -1,3 +1,4 @@
+import contextvars
 import random
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,6 +14,26 @@ from generation.validation import (
     registered_capabilities,
     run_validators,
 )
+
+_current_output_dir: contextvars.ContextVar[Path] = contextvars.ContextVar(
+    "programatic_dataset_generation_tool.current_output_dir"
+)
+
+
+def current_output_dir() -> Path:
+    """Return the output dir of the currently running ``run()``.
+
+    Call from inside a ``generate_fn`` (or validator) to learn where the dataset
+    is being written, e.g. to save extra files alongside ``stimuli.jsonl``.
+    Raises ``RuntimeError`` when called outside a ``run()``.
+    """
+    try:
+        return _current_output_dir.get()
+    except LookupError:
+        raise RuntimeError(
+            "current_output_dir() can only be called from within a generate_fn "
+            "or validator executed by run()."
+        ) from None
 
 
 def run(
@@ -41,8 +62,12 @@ def run(
 
     def _run_one(spec_index: int, rep_index: int) -> Stimulus:
         rng = random.Random(hash((seed, spec_index, rep_index)))
-        stimulus = generate_fn(specs[spec_index], rng)
-        run_validators(stimulus, specs[spec_index])
+        token = _current_output_dir.set(output_dir)
+        try:
+            stimulus = generate_fn(specs[spec_index], rng)
+            run_validators(stimulus, specs[spec_index])
+        finally:
+            _current_output_dir.reset(token)
         return stimulus
 
     def _ordered_results() -> Iterator[Stimulus]:
