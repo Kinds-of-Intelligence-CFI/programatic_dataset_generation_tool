@@ -2,6 +2,102 @@
 
 This tool is designed to make it easier to create datasets systematically and control the types of variation in the stimuli. This tool cannot do the generation for you as that will be specific to your individual experiment however it provides the tools and structure to make it as easy as possible to use this approach. Additionally, we provide examples of how this tool can be used to create different datasets and the different approaches you can take to implement the generation.
 
+## Setup
+
+The tool targets **Python 3.14** and uses [`uv`](https://docs.astral.sh/uv/) for dependency management. If you do not already have `uv` installed:
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+The tool is not yet published to PyPI, so the workflow is to clone the repository and run your generation scripts from inside it (or add it as a path/workspace dependency in your own project).
+
+```bash
+git clone https://github.com/<your-fork-or-this-repo>/programatic_dataset_generation_tool.git
+cd programatic_dataset_generation_tool
+
+# install core dependencies into a managed .venv
+uv sync
+
+# (optional) also install the inspect_ai adapter if you want to load
+# generated datasets directly into inspect_ai for evaluation
+uv sync --group inspect
+
+# verify the install by running the test suite
+uv run pytest
+```
+
+To use the tool, write your generation script anywhere inside the repo (see `./example/` for full scripts) and run it with `uv run python your_script.py`. The packages you will import from are `dataset`, `generation`, and `evaluation` — for example:
+
+```python
+from generation.generate import Spec
+from generation.runner import run
+from generation.utils import grid
+from generation.validation import validates
+from dataset.stimulus import Stimulus, Message, ContentText, ContentImage
+from evaluation.inspect_utils import load_dataset  # requires the inspect group
+```
+
+## Quickstart
+
+Here is a complete hello-world script. It defines one capability (`addition`), one `Spec`, and one generation function, then writes a small dataset to disk.
+
+```python
+import random
+from pathlib import Path
+
+from dataset.stimulus import Stimulus, Message
+from generation.generate import Spec
+from generation.runner import run
+
+
+def generate_stimulus(spec: Spec, rng: random.Random) -> Stimulus:
+    a = rng.randint(1, 9)
+    b = rng.randint(1, 9)
+    return Stimulus(
+        spec=spec,
+        messages=[Message(role="user", content=f"What is {a} + {b}?")],
+        target=str(a + b),
+    )
+
+
+specs = [Spec(capabilities={"addition"})]
+
+run(
+    generate_stimulus,
+    specs,
+    n_reps=3,
+    output_dir=Path("hello_world_dataset"),
+    seed=42,
+)
+```
+
+Save this as `hello.py` and run it with `uv run python hello.py`. After it finishes, `./hello_world_dataset/` will contain three generated samples plus a manifest describing the run.
+
+## Output folder layout
+
+`run()` writes a self-contained dataset folder. For the quickstart above, you would get:
+
+```
+hello_world_dataset/
+├── stimuli.jsonl       # one JSON-encoded Stimulus per line, in (spec_index, rep_index) order
+├── manifest.json       # name, library_version, timestamp, global_seed, n_reps, n_stimuli, specs
+└── assets/             # only created if any stimuli contain non-text content
+    ├── inline/         # bytes embedded as data URIs (e.g. ContentImage.from_bytes(...))
+    │                   # named <sample_id>_<message_index>_<content_index>.<ext>
+    └── files/          # files referenced from disk, content-hash deduped
+                        # named <original_stem>__<sha256[:12]>.<ext>
+```
+
+A few things worth knowing:
+- A pure-text dataset (like the quickstart) will not have an `assets/` folder at all.
+- `http://...` and `https://...` references are left untouched in `stimuli.jsonl` — they are not downloaded.
+- `manifest.json` captures everything needed to reproduce the dataset (library version, full spec list, global seed, n_reps). Re-running the same script gives byte-identical output.
+
 ## Structure
 
 Since each experiment requires different stimuli in different formats this tool does not generate the actual stimuli itself. Rather you the user provide a python function of the format
@@ -55,7 +151,7 @@ specs = grid({
 more examples of these can be found in `./generation/utils.py`.
 
 #### generation
-Now that we have defined the names for our capabilities and params we can start on implementing the generation. The first step in generation is often to check if the capabilities and params given are a valid combination. In this example a simple check we might do is to check if the number of capabilities required is less than the number of operations, as we cannot generate a sample that required both addition and multipication using only one operation. When we encounter a sample we cannot generate we will throw an error, in this case our function will look something like this:
+Now that we have defined the names for our capabilities and params we can start on implementing the generation. The first step in generation is often to check if the capabilities and params given are a valid combination. In this example a simple check we might do is to check if the number of capabilities required is less than the number of operations, as we cannot generate a sample that required both addition and multiplication using only one operation. When we encounter a sample we cannot generate we will throw an error, in this case our function will look something like this:
 
 ```python
 def generate_stimulus(spec: Spec, rng: random.Random) -> Stimulus:
@@ -99,13 +195,13 @@ next we will generate the specific question and calculate the answer. in our cas
             answer /= value
 ```
 
-Now we have a question and an answer that satifies the requirements set out by the spec, it is now time to return the stimulus object. The `Stimulus` class is designed to be as flexible as possible but still fitted to how most llm experiments are designed, use the stimulus however is best for you and your experiment, the structure is only there to help you keep things organised. The main part of the stimulus class is `messages` field, this field is designed to hold a list of messages which have a source (either system, user, assistant or tool) and some content, be that images text or whatever. The idea is that the messages should be what you want to be the input context for the model you are testing and is useful if you want to pre-load the context with a conversation in progress. In our case we will just add a message from the user with the text `Can you tell me what the answer is to {question}?`. Next we want to fillout the `target` field, this field should hold the answer to your sample if there is one, in our case we can just set our answer as the target. Next we set the spec to the spec we were given so we know all the requrirements for this sample and we can fill out the metadata with any extra information we might need during evaluation or analysis, in our case none. Finally we leave the `validators_ran` field empty and we'll cover that later.
+Now we have a question and an answer that satisfies the requirements set out by the spec, it is now time to return the stimulus object. The `Stimulus` class is designed to be as flexible as possible but still fitted to how most llm experiments are designed, use the stimulus however is best for you and your experiment, the structure is only there to help you keep things organised. The main part of the stimulus class is `messages` field, this field is designed to hold a list of messages which have a source (either system, user, assistant or tool) and some content, be that images text or whatever. The idea is that the messages should be what you want to be the input context for the model you are testing and is useful if you want to pre-load the context with a conversation in progress. In our case we will just add a message from the user with the text `Can you tell me what the answer is to {question}?`. Next we want to fillout the `target` field, this field should hold the answer to your sample if there is one, in our case we can just set our answer as the target. Next we set the spec to the spec we were given so we know all the requirements for this sample and we can fill out the metadata with any extra information we might need during evaluation or analysis, in our case none. Finally we leave the `validators_ran` field empty and we'll cover that later.
 
 ```python
 return Stimulus(
     spec=spec,
-    messages=[Message(role="user", content="Can you tell me what the answer is to {question}?")]
-    target=str(answer)
+    messages=[Message(role="user", content=f"Can you tell me what the answer is to {question}?")],
+    target=str(answer),
 )
 ```
 Now we have a full generation function for our experiment and the specs for all the samples we want we can run the dataset builder and output a dataset to a given folder.
@@ -135,7 +231,7 @@ def check_num_ops(stimulus: Stimulus, spec: Spec) -> None:
 
 #### evaluation
 
-now that we have the dataset and it is fully validated we can move to running the evaluation itself. You can use whatever framework you like but we provide some utils to load the dataset into inspect including loading the messages. Moreover, as a little cheat, if there is only one message and it is from the user, the content of that message is loaded into inspect as the input for the sample, which is then automatically insterted as a user message. 
+now that we have the dataset and it is fully validated we can move to running the evaluation itself. You can use whatever framework you like but we provide some utils to load the dataset into inspect including loading the messages. Moreover, as a little cheat, if there is only one message and it is from the user, the content of that message is loaded into inspect as the input for the sample, which is then automatically inserted as a user message. 
 ```python
 from inspect_ai import Task, task, eval as inspect_eval
 from inspect_ai.scorer import includes
@@ -170,10 +266,16 @@ message = Message(
                 ],
             ),
 ```
-the data for an image can either come from a string of bytes including the data of the image, a path to a file containing the image or a URL pointing to the image. The same is true for each of the other datatypes supported by the tool but images are the easiest place to get started for most people. Additionally, when the sample is finished being generated and passes all the validators, each image (or other content) is then saved to the dataset under the assets folder and the uri changed to point to the saved file. Byte strings are saved to the `inline` subfolder and paths to files are coppied to `files`. Content from URLs is allowed but is not coppied to the dataset for security reasons. 
+the data for an image can either come from a string of bytes including the data of the image, a path to a file containing the image or a URL pointing to the image. The same is true for each of the other datatypes supported by the tool but images are the easiest place to get started for most people. Additionally, when the sample is finished being generated and passes all the validators, each image (or other content) is then saved to the dataset under the assets folder and the uri changed to point to the saved file. Byte strings are saved to the `inline` subfolder and paths to files are copied to `files`. Content from URLs is allowed but is not copied to the dataset for security reasons. 
 
 
 #### Adding arbitry files
 
-Sometimes when creating a dataset you might want to add some files to the dataset that are not part of any messages but are needed during evaluation. An example of this might be if you have a docker file for each sample defining the environment the agent acts in. For these situations you can add the file yourself during the generate function using the context variable `current_output_dir()` to get the output path of the dataset. We reccomend avoiding this if possible as you will need to handle file collisons and cleanup if the sample fails to generate or pass validation. However the option exists for those usecases where there are no other options.
+Sometimes when creating a dataset you might want to add some files to the dataset that are not part of any messages but are needed during evaluation. An example of this might be if you have a docker file for each sample defining the environment the agent acts in. For these situations you can add the file yourself during the generate function using the context variable `current_output_dir()` to get the output path of the dataset. We recommend avoiding this if possible as you will need to handle file collisons and cleanup if the sample fails to generate or pass validation. However the option exists for those usecases where there are no other options.
 
+
+### Intuit (using templates to generate stimuli)
+
+
+
+### agentic ToM (using metadata during evalution)
