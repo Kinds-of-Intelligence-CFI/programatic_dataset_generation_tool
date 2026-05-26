@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from dataset.stimulus import Message, Stimulus
-from generation.generate import Spec
+from generation.generate import SampleSpec
 from generation.runner import run
 
 
@@ -16,7 +16,7 @@ def _read_ids(out: Path) -> list[str]:
     ]
 
 
-def _gen_no_id(spec: Spec, rng: random.Random) -> Stimulus:
+def _gen_no_id(spec: SampleSpec, rng: random.Random) -> Stimulus:
     return Stimulus(
         spec=spec,
         messages=[Message(role="user", content=f"hello {spec.params['i']}")],
@@ -25,14 +25,14 @@ def _gen_no_id(spec: Spec, rng: random.Random) -> Stimulus:
 
 
 def test_auto_ids_when_all_none(tmp_path: Path):
-    specs = [Spec(params={"i": i}) for i in range(4)]
+    specs = [SampleSpec(params={"i": i}) for i in range(4)]
     out = tmp_path / "ds"
     run(_gen_no_id, specs, n_reps=2, output_dir=out, seed=0)
     assert _read_ids(out) == [str(i) for i in range(8)]
 
 
 def test_user_set_ids_preserved(tmp_path: Path):
-    def gen(spec: Spec, rng: random.Random) -> Stimulus:
+    def gen(spec: SampleSpec, rng: random.Random) -> Stimulus:
         return Stimulus(
             sample_id=f"named_{spec.params['i']}",
             spec=spec,
@@ -40,14 +40,14 @@ def test_user_set_ids_preserved(tmp_path: Path):
             target="t",
         )
 
-    specs = [Spec(params={"i": i}) for i in range(3)]
+    specs = [SampleSpec(params={"i": i}) for i in range(3)]
     out = tmp_path / "ds"
     run(gen, specs, n_reps=1, output_dir=out, seed=0)
     assert _read_ids(out) == ["named_0", "named_1", "named_2"]
 
 
 def test_mixed_user_and_auto_ids(tmp_path: Path):
-    def gen(spec: Spec, rng: random.Random) -> Stimulus:
+    def gen(spec: SampleSpec, rng: random.Random) -> Stimulus:
         sid = f"named_{spec.params['i']}" if spec.params["user_set"] else None
         return Stimulus(
             sample_id=sid,
@@ -57,10 +57,10 @@ def test_mixed_user_and_auto_ids(tmp_path: Path):
         )
 
     specs = [
-        Spec(params={"i": 0, "user_set": True}),
-        Spec(params={"i": 1, "user_set": False}),
-        Spec(params={"i": 2, "user_set": True}),
-        Spec(params={"i": 3, "user_set": False}),
+        SampleSpec(params={"i": 0, "user_set": True}),
+        SampleSpec(params={"i": 1, "user_set": False}),
+        SampleSpec(params={"i": 2, "user_set": True}),
+        SampleSpec(params={"i": 3, "user_set": False}),
     ]
     out = tmp_path / "ds"
     run(gen, specs, n_reps=1, output_dir=out, seed=0)
@@ -68,7 +68,7 @@ def test_mixed_user_and_auto_ids(tmp_path: Path):
 
 
 def test_duplicate_user_ids_raise(tmp_path: Path):
-    def gen(spec: Spec, rng: random.Random) -> Stimulus:
+    def gen(spec: SampleSpec, rng: random.Random) -> Stimulus:
         return Stimulus(
             sample_id="same",
             spec=spec,
@@ -76,13 +76,13 @@ def test_duplicate_user_ids_raise(tmp_path: Path):
             target="t",
         )
 
-    specs = [Spec(params={"i": i}) for i in range(2)]
+    specs = [SampleSpec(params={"i": i}) for i in range(2)]
     with pytest.raises(ValueError, match="same"):
         run(gen, specs, n_reps=1, output_dir=tmp_path / "ds", seed=0)
 
 
 def test_auto_collides_with_user_id_raises(tmp_path: Path):
-    def gen(spec: Spec, rng: random.Random) -> Stimulus:
+    def gen(spec: SampleSpec, rng: random.Random) -> Stimulus:
         sid = "3" if spec.params["i"] == 0 else None
         return Stimulus(
             sample_id=sid,
@@ -91,13 +91,13 @@ def test_auto_collides_with_user_id_raises(tmp_path: Path):
             target="t",
         )
 
-    specs = [Spec(params={"i": i}) for i in range(4)]
+    specs = [SampleSpec(params={"i": i}) for i in range(4)]
     with pytest.raises(ValueError, match="'3'"):
         run(gen, specs, n_reps=1, output_dir=tmp_path / "ds", seed=0)
 
 
 def test_auto_ids_deterministic_across_runs(tmp_path: Path):
-    specs = [Spec(params={"i": i}) for i in range(5)]
+    specs = [SampleSpec(params={"i": i}) for i in range(5)]
     out_a = tmp_path / "a"
     out_b = tmp_path / "b"
     run(_gen_no_id, specs, n_reps=2, output_dir=out_a, seed=42, max_workers=4)

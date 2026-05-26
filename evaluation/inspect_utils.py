@@ -64,6 +64,7 @@ def _record_to_sample(record: dict[str, Any], dataset_dir: Path) -> Sample:
     metadata: dict[str, Any] = {
         "_stimulus": {
             "spec": record["spec"],
+            "functional": record.get("functional"),
             "validators_ran": record.get("validators_ran", []),
             "dataset_dir": str(dataset_dir),
         },

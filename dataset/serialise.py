@@ -11,7 +11,7 @@ from dataset.stimulus import (
     Message,
     Stimulus,
 )
-from generation.generate import Spec
+from generation.generate import SampleSpec
 
 _JSON_PRIMITIVES = (str, int, float, bool, type(None))
 
@@ -37,18 +37,27 @@ def stimulus_to_dict(s: Stimulus) -> dict:
 
 
 def stimulus_from_dict(d: dict) -> Stimulus:
-    spec = Spec(
-        capabilities=set(d["spec"]["capabilities"]),
-        params=dict(d["spec"]["params"]),
-    )
+    spec = _spec_from_dict(d["spec"])
+    assert spec is not None  # "spec" is required in every record
+    functional = _spec_from_dict(d.get("functional"))
     messages = [_message_from_dict(m) for m in d["messages"]]
     return Stimulus(
         sample_id=d["sample_id"],
         spec=spec,
+        functional=functional,
         messages=messages,
         target=d["target"],
         validators_ran=list(d.get("validators_ran", [])),
         metadata=dict(d.get("metadata", {})),
+    )
+
+
+def _spec_from_dict(d: dict | None) -> SampleSpec | None:
+    if d is None:
+        return None
+    return SampleSpec(
+        demands=set(d["demands"]),
+        params=dict(d["params"]),
     )
 
 

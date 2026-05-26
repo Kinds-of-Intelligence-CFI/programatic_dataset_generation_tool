@@ -3,51 +3,51 @@ from __future__ import annotations
 import itertools
 from typing import Any, Callable, Iterable, Literal
 
-from generation.generate import Spec
+from generation.generate import SampleSpec
 
 
-CAPABILITIES_KEY = "capabilities"
+DEMANDS_KEY = "demands"
 DEFAULT_KEY = "default"
 
-Predicate = Callable[[Spec], bool]
+Predicate = Callable[[SampleSpec], bool]
 WeightMap = dict[Predicate | Literal["default"], int]
 
 
-def grid(grid_spec: dict[str, Iterable[Any]]) -> list[Spec]:
-    """Cartesian product of a dict of value-lists into a list of Specs.
+def grid(grid_spec: dict[str, Iterable[Any]]) -> list[SampleSpec]:
+    """Cartesian product of a dict of value-lists into a list of SampleSpecs.
 
-    The key "capabilities" is special: each value at that key becomes the
-    full set of capabilities for that combination. All other keys are placed
-    verbatim into Spec.params.
+    The key "demands" is special: each value at that key becomes the
+    full set of demands for that combination. All other keys are placed
+    verbatim into SampleSpec.params.
     """
     if not grid_spec:
-        return [Spec()]
+        return [SampleSpec()]
 
     keys = list(grid_spec.keys())
     value_lists = [list(grid_spec[k]) for k in keys]
 
-    out: list[Spec] = []
+    out: list[SampleSpec] = []
     for combo in itertools.product(*value_lists):
-        capabilities: set[str] = set()
+        demands: set[str] = set()
         params: dict[str, Any] = {}
         for key, val in zip(keys, combo):
-            if key == CAPABILITIES_KEY:
-                capabilities = set(val)
+            if key == DEMANDS_KEY:
+                demands = set(val)
             else:
                 params[key] = val
-        out.append(Spec(capabilities=capabilities, params=params))
+        out.append(SampleSpec(demands=demands, params=params))
     return out
 
 
-def exclude(specs: list[Spec], predicate: Predicate) -> list[Spec]:
+def exclude(specs: list[SampleSpec], predicate: Predicate) -> list[SampleSpec]:
     """Return specs for which `predicate(spec)` is False."""
     return [s for s in specs if not predicate(s)]
 
 
-def weighted(specs: list[Spec], weight_map: WeightMap) -> list[Spec]:
+def weighted(specs: list[SampleSpec], weight_map: WeightMap) -> list[SampleSpec]:
     """Duplicate each spec by an integer weight chosen from `weight_map`.
 
-    Keys in `weight_map` are predicates `Callable[[Spec], bool]` or the literal
+    Keys in `weight_map` are predicates `Callable[[SampleSpec], bool]` or the literal
     string "default". Each spec must match at most one predicate; matching
     multiple predicates is an error so the bucket structure stays explicit.
     Specs matching no predicate use "default" if present, else weight 1.
@@ -65,12 +65,12 @@ def weighted(specs: list[Spec], weight_map: WeightMap) -> list[Spec]:
     ]
     default_weight: int = weight_map.get("default", 1)
 
-    out: list[Spec] = []
+    out: list[SampleSpec] = []
     for spec in specs:
         matches = [(pred, w) for pred, w in predicates if pred(spec)]
         if len(matches) > 1:
             raise ValueError(
-                f"Spec {spec!r} matched {len(matches)} predicates in weight_map; "
+                f"SampleSpec {spec!r} matched {len(matches)} predicates in weight_map; "
                 "predicates must be mutually exclusive"
             )
         weight = matches[0][1] if matches else default_weight

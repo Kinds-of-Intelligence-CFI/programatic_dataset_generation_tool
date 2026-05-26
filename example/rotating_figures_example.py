@@ -6,16 +6,16 @@ A Python port of the rotating-figures task from the sibling repo
 - ``generate_fn(spec, rng)`` takes an explicit ``random.Random`` (no module-level
   random state).
 - One ``Stimulus`` per call; the (stimulus_set, question_type) condition matrix is
-  expressed as a flat ``list[Spec]`` instead of nested loops over images.
+  expressed as a flat ``list[SampleSpec]`` instead of nested loops over images.
 - Images are PIL-rendered and embedded inline via ``ContentImage.from_bytes`` so
   the dataset folder is self-contained.
 
 The five conditions:
 
 - ``control_1`` / ``control_2``: no perspective-taking demand.
-- ``level_1``: spatial perspective taking (capability ``spatial_perspective``).
-- ``level_2``: visual perspective taking (capability ``visual_perspective``).
-- ``level_3``: both capabilities together.
+- ``level_1``: spatial perspective taking (demand ``spatial_perspective``).
+- ``level_2``: visual perspective taking (demand ``visual_perspective``).
+- ``level_3``: both demands together.
 
 Each condition is paired with both a visual and a spatial question, giving 10
 conditions in total. ``n_reps`` controls how many independent stimuli are
@@ -41,7 +41,7 @@ from PIL import Image
 
 from dataset.stimulus import ContentImage, ContentText, Message, Stimulus
 from evaluation.inspect_utils import load_dataset
-from generation.generate import Spec
+from generation.generate import SampleSpec
 from generation.runner import run
 from generation.validation import validates
 
@@ -91,7 +91,7 @@ SET_CONFIG: dict[str, dict[str, Any]] = {
 }
 
 
-CAPABILITY_MAP: dict[str, set[str]] = {
+DEMAND_MAP: dict[str, set[str]] = {
     "control_1": set(),
     "control_2": set(),
     "level_1": {"spatial_perspective"},
@@ -335,7 +335,7 @@ def _build_prompt(
 # === Generator ===
 
 
-def generate_rotating_figure(spec: Spec, rng: random.Random) -> Stimulus:
+def generate_rotating_figure(spec: SampleSpec, rng: random.Random) -> Stimulus:
     stimulus_set: str = spec.params["stimulus_set"]
     question_type: str = spec.params["question_type"]
     cfg = SET_CONFIG[stimulus_set]
@@ -486,8 +486,8 @@ def _expected_targets(stimulus_set: str, question_type: str) -> set[str]:
     raise ValueError(f"No vocab for ({stimulus_set}, {question_type})")
 
 
-@validates(name="user_message_has_image", capability="*")
-def user_message_has_image(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="user_message_has_image", demand="*")
+def user_message_has_image(stimulus: Stimulus, spec: SampleSpec) -> None:
     user_msgs = [m for m in stimulus.messages if m.role == "user"]
     assert user_msgs, "no user message"
     content = user_msgs[0].content
@@ -498,15 +498,15 @@ def user_message_has_image(stimulus: Stimulus, spec: Spec) -> None:
     assert len(image_items) == 1, f"expected 1 ContentImage, found {len(image_items)}"
 
 
-@validates(name="target_non_empty", capability="*")
-def target_non_empty(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="target_non_empty", demand="*")
+def target_non_empty(stimulus: Stimulus, spec: SampleSpec) -> None:
     assert isinstance(stimulus.target, str) and stimulus.target.strip(), (
         "target must be a non-empty string"
     )
 
 
-@validates(name="target_in_vocabulary", capability="*")
-def target_in_vocabulary(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="target_in_vocabulary", demand="*")
+def target_in_vocabulary(stimulus: Stimulus, spec: SampleSpec) -> None:
     stimulus_set = spec.params["stimulus_set"]
     question_type = spec.params["question_type"]
     expected = _expected_targets(stimulus_set, question_type)
@@ -516,14 +516,14 @@ def target_in_vocabulary(stimulus: Stimulus, spec: Spec) -> None:
     )
 
 
-@validates(name="metadata_matches_spec", capability="*")
-def metadata_matches_spec(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="metadata_matches_spec", demand="*")
+def metadata_matches_spec(stimulus: Stimulus, spec: SampleSpec) -> None:
     assert stimulus.metadata.get("stimulus_set") == spec.params["stimulus_set"]
     assert stimulus.metadata.get("question_type") == spec.params["question_type"]
 
 
-@validates(name="placement_zone_in_set", capability="spatial_perspective")
-def placement_zone_in_set(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="placement_zone_in_set", demand="spatial_perspective")
+def placement_zone_in_set(stimulus: Stimulus, spec: SampleSpec) -> None:
     stimulus_set = spec.params["stimulus_set"]
     allowed = set(SET_CONFIG[stimulus_set]["placement_zones"])
     actual = stimulus.metadata.get("relative_location")
@@ -532,8 +532,8 @@ def placement_zone_in_set(stimulus: Stimulus, spec: Spec) -> None:
     )
 
 
-@validates(name="number_is_figure_rotated", capability="visual_perspective")
-def number_is_figure_rotated(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="number_is_figure_rotated", demand="visual_perspective")
+def number_is_figure_rotated(stimulus: Stimulus, spec: SampleSpec) -> None:
     appearance_type = stimulus.metadata.get("number_appearance_type")
     assert appearance_type == "figure_perspective", (
         f"visual_perspective stimulus should rotate the symbol to the figure's view; "
@@ -541,8 +541,8 @@ def number_is_figure_rotated(stimulus: Stimulus, spec: Spec) -> None:
     )
 
 
-@validates(name="level_3_has_alternate", capability="visual_perspective")
-def level_3_has_alternate(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="level_3_has_alternate", demand="visual_perspective")
+def level_3_has_alternate(stimulus: Stimulus, spec: SampleSpec) -> None:
     if spec.params["stimulus_set"] != "level_3":
         return
     alt = stimulus.metadata.get("alternate_number")
@@ -572,12 +572,12 @@ def rotating_figures_task(dataset_dir: str) -> Task:
 
 
 if __name__ == "__main__":
-    specs: list[Spec] = []
+    specs: list[SampleSpec] = []
     for set_name in SET_CONFIG:
         for q_type in ("visual", "spatial"):
             specs.append(
-                Spec(
-                    capabilities=set(CAPABILITY_MAP[set_name]),
+                SampleSpec(
+                    demands=set(DEMAND_MAP[set_name]),
                     params={
                         "stimulus_set": set_name,
                         "question_type": q_type,

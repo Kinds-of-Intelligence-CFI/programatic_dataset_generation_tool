@@ -9,12 +9,12 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class Spec:
-    capabilities: set[str] = field(default_factory=set)
+class SampleSpec:
+    demands: set[str] = field(default_factory=set)
     params: dict = field(default_factory=dict)
 
 
-Condition = list[Spec]
+Condition = list[SampleSpec]
 
 
 class GenerateFn(Protocol):
@@ -24,4 +24,4 @@ class GenerateFn(Protocol):
     `random` or `numpy.random` breaks the runner's determinism contract.
     """
 
-    def __call__(self, spec: Spec, rng: random.Random) -> Stimulus: ...
+    def __call__(self, spec: SampleSpec, rng: random.Random) -> Stimulus: ...

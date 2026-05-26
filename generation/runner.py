@@ -9,9 +9,9 @@ from tqdm import tqdm
 
 from dataset.stimulus import Stimulus
 from dataset.writer import write_dataset
-from generation.generate import GenerateFn, Spec
+from generation.generate import GenerateFn, SampleSpec
 from generation.validation import (
-    registered_capabilities,
+    registered_demands,
     run_validators,
 )
 
@@ -38,21 +38,30 @@ def current_output_dir() -> Path:
 
 def run(
     generate_fn: GenerateFn,
-    specs: list[Spec],
+    specs: list[SampleSpec],
     n_reps: int,
     output_dir: Path,
     seed: int,
     *,
     name: str | None = None,
     max_workers: int | None = None,
+    functional: SampleSpec | None = None,
 ) -> None:
     """Generate stimuli in parallel, validate per-sample, write to output_dir.
 
     Samples are written to stimuli.jsonl in deterministic (spec_index, rep_index)
     order regardless of completion order. A validator failure aborts generation
     and cancels pending work; partial JSONL is left on disk for debugging.
+
+    `functional` carries demands/params that apply identically to every
+    sample. The runner merges them into the per-sample (experimental) spec
+    before calling the generator and validators, then stores the two pieces
+    separately on the returned Stimulus so they serialise as two top-level
+    fields - making the constants visible at a glance in the JSONL and manifest.
     """
-    _warn_about_missing_validators(specs)
+    if functional is not None:
+        _check_param_conflicts(functional, specs)
+    _warn_about_missing_validators(specs, functional)
 
     jobs = [
         (spec_index, rep_index)
@@ -64,8 +73,12 @@ def run(
         rng = random.Random(hash((seed, spec_index, rep_index)))
         token = _current_output_dir.set(output_dir)
         try:
-            stimulus = generate_fn(specs[spec_index], rng)
-            run_validators(stimulus, specs[spec_index])
+            experimental = specs[spec_index]
+            effective = _merge(functional, experimental)
+            stimulus = generate_fn(effective, rng)
+            run_validators(stimulus, effective)
+            stimulus.spec = experimental
+            stimulus.functional = functional
         finally:
             _current_output_dir.reset(token)
         return stimulus
@@ -112,16 +125,43 @@ def run(
         specs=specs,
         global_seed=seed,
         n_reps=n_reps,
+        functional=functional,
     )
 
 
-def _warn_about_missing_validators(specs: list[Spec]) -> None:
-    all_caps: set[str] = set()
+def _merge(functional: SampleSpec | None, spec: SampleSpec) -> SampleSpec:
+    if functional is None:
+        return spec
+    return SampleSpec(
+        demands=functional.demands | spec.demands,
+        params={**functional.params, **spec.params},
+    )
+
+
+def _check_param_conflicts(functional: SampleSpec, specs: list[SampleSpec]) -> None:
+    conflicts: set[str] = set()
     for spec in specs:
-        all_caps.update(spec.capabilities)
-    missing = sorted(all_caps - registered_capabilities())
+        conflicts.update(functional.params.keys() & spec.params.keys())
+    if conflicts:
+        raise ValueError(
+            "Param keys appear in both functional and experimental specs: "
+            + ", ".join(sorted(conflicts))
+            + ". A functional param is by definition the same for every sample; "
+            "remove it from the experimental specs or from functional."
+        )
+
+
+def _warn_about_missing_validators(
+    specs: list[SampleSpec], functional: SampleSpec | None = None
+) -> None:
+    all_demands: set[str] = set()
+    for spec in specs:
+        all_demands.update(spec.demands)
+    if functional is not None:
+        all_demands.update(functional.demands)
+    missing = sorted(all_demands - registered_demands())
     if missing:
         warnings.warn(
-            "No validators registered for capabilities: " + ", ".join(missing),
+            "No validators registered for demands: " + ", ".join(missing),
             stacklevel=3,
         )

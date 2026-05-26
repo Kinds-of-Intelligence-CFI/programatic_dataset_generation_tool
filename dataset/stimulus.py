@@ -3,7 +3,7 @@ import mimetypes
 from dataclasses import dataclass, field
 from typing import Literal
 
-from generation.generate import Spec
+from generation.generate import SampleSpec
 
 
 @dataclass
@@ -104,7 +104,8 @@ class Message:
 
 @dataclass
 class Stimulus:
-    spec: Spec
+    spec: SampleSpec
+    functional: SampleSpec | None = field(default=None, kw_only=True)
     messages: list[Message]
     target: str
     sample_id: str | None = None

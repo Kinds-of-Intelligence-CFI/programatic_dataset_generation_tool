@@ -34,7 +34,7 @@ uv run pytest
 To use the tool, write your generation script anywhere inside the repo (see `./example/` for full scripts) and run it with `uv run python your_script.py`. The packages you will import from are `dataset`, `generation`, and `evaluation` — for example:
 
 ```python
-from generation.generate import Spec
+from generation.generate import SampleSpec
 from generation.runner import run
 from generation.utils import grid
 from generation.validation import validates
@@ -44,18 +44,18 @@ from evaluation.inspect_utils import load_dataset  # requires the inspect group
 
 ## Quickstart
 
-Here is a complete hello-world script. It defines one capability (`addition`), one `Spec`, and one generation function, then writes a small dataset to disk.
+Here is a complete hello-world script. It defines one demand (`addition`), one `SampleSpec`, and one generation function, then writes a small dataset to disk.
 
 ```python
 import random
 from pathlib import Path
 
 from dataset.stimulus import Stimulus, Message
-from generation.generate import Spec
+from generation.generate import SampleSpec
 from generation.runner import run
 
 
-def generate_stimulus(spec: Spec, rng: random.Random) -> Stimulus:
+def generate_stimulus(spec: SampleSpec, rng: random.Random) -> Stimulus:
     a = rng.randint(1, 9)
     b = rng.randint(1, 9)
     return Stimulus(
@@ -65,7 +65,7 @@ def generate_stimulus(spec: Spec, rng: random.Random) -> Stimulus:
     )
 
 
-specs = [Spec(capabilities={"addition"})]
+specs = [SampleSpec(demands={"addition"})]
 
 run(
     generate_stimulus,
@@ -102,10 +102,10 @@ A few things worth knowing:
 
 Since each experiment requires different stimuli in different formats this tool does not generate the actual stimuli itself. Rather you the user provide a python function of the format
 ```python
-def generate_stimuli(spec: Spec, rng: random.Random) -> Stimulus:
+def generate_stimuli(spec: SampleSpec, rng: random.Random) -> Stimulus:
     ...
 ```
-where the `spec` argument defines the specific requirement for this individual stimulus. This can include the specific capabilities being tested, if the sample is a control or test sample or other metadata about the generation such as the resolution of any images to generate or similar. Your generate function will then need to generate a stimulus object with all the requirements specified in the spec and anything not specified randomised using `rng` as a generator. Once this is done you can specify what combinations of requirements you want in your dataset along with other values such as how many samples and the seed value. The tool with then create the samples with each combination you want, validate that each one correctly tests the capabilities you want it to test and will save the results to a folder including all of the stimuli, assets such as images and a manifest of the dataset describing how and when the dataset was generated for easy replication.
+where the `spec` argument defines the specific requirement for this individual stimulus. This can include the specific demands being tested, if the sample is a control or test sample or other metadata about the generation such as the resolution of any images to generate or similar. Your generate function will then need to generate a stimulus object with all the requirements specified in the spec and anything not specified randomised using `rng` as a generator. Once this is done you can specify what combinations of requirements you want in your dataset along with other values such as how many samples and the seed value. The tool with then create the samples with each combination you want, validate that each one correctly tests the demands you want it to test and will save the results to a folder including all of the stimuli, assets such as images and a manifest of the dataset describing how and when the dataset was generated for easy replication.
 
 Additionally, we provide tools to load your datasets into `inspect_ai` and provide examples of how to run evaluations on them. However, if you wish to use the datasets in any other framework you can simply parse the json files and load them into the specific format for that framework.
 
@@ -118,14 +118,14 @@ In this section we will cover a variety of examples of how to implement differen
 This example is about a simple question answer experiment. These types of experiment are not well suited to this type of dataset generation (unless you generate the questions using a knowledge base such as wiki data) however the point of this example is to show you the features of the tool without complicated generation logic and show a full run through of the process.
 
 #### planning
-First we want to specify the different capabilities and combinations we want to test. In this case we are building an experiment where we ask a language model to solve maths problems and so we might decide that our capabilities are `addition`, `subtraction`, `multiplication` and `division`. Currently, capabilities are simply strings and if the string is present in spec the stimuli should require it to solve, however in the future they are likely to also support having a value indicating what level of capability is needed. Next, we will define other values we want to control that are not capabilities themselves, for example we will probably want to control the number of operations in the question and the range of values for the inputs to the operations. We will give these the names `num_operations` and `min_values`/`max_values`.
+First we want to specify the different demands and combinations we want to test. In this case we are building an experiment where we ask a language model to solve maths problems and so we might decide that our demands are `addition`, `subtraction`, `multiplication` and `division`. Currently, demands are simply strings and if the string is present in spec the stimuli should require it to solve, however in the future they are likely to also support having a value indicating what level of demand is needed. Next, we will define other values we want to control that are not demands themselves, for example we will probably want to control the number of operations in the question and the range of values for the inputs to the operations. We will give these the names `num_operations` and `min_values`/`max_values`.
 
-Now that we have defined our capabilities and parameters we can build a list of specs with one spec corresponding to a single sample in your dataset. This can be done manually:
+Now that we have defined our demands and parameters we can build a list of specs with one spec corresponding to a single sample in your dataset. This can be done manually:
 ```python
 specs = [
-    Spec(capabilities={"addition"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
-    Spec(capabilities={"addition", "subtraction"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
-    Spec(capabilities={"multiplication"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
+    SampleSpec(demands={"addition"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
+    SampleSpec(demands={"addition", "subtraction"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
+    SampleSpec(demands={"multiplication"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
     ...
 ]
 ```
@@ -135,14 +135,14 @@ from itertools import combinations
 from generation.utils import grid
 
 ops = ["addition", "subtraction", "multiplication", "division"]
-capability_combos = [
+demand_combos = [
     set(combo)
     for r in range(1, len(ops) + 1)
     for combo in combinations(ops, r)
 ]
 
 specs = grid({
-    "capabilities": capability_combos,
+    "demands": demand_combos,
     "num_operations": [3, 4, 5],
     "min_values": [1],
     "max_values": [5, 10, 20],
@@ -151,14 +151,14 @@ specs = grid({
 more examples of these can be found in `./generation/utils.py`.
 
 #### generation
-Now that we have defined the names for our capabilities and params we can start on implementing the generation. The first step in generation is often to check if the capabilities and params given are a valid combination. In this example a simple check we might do is to check if the number of capabilities required is less than the number of operations, as we cannot generate a sample that required both addition and multiplication using only one operation. When we encounter a sample we cannot generate we will throw an error, in this case our function will look something like this:
+Now that we have defined the names for our demands and params we can start on implementing the generation. The first step in generation is often to check if the demands and params given are a valid combination. In this example a simple check we might do is to check if the number of demands required is less than the number of operations, as we cannot generate a sample that required both addition and multiplication using only one operation. When we encounter a sample we cannot generate we will throw an error, in this case our function will look something like this:
 
 ```python
-def generate_stimulus(spec: Spec, rng: random.Random) -> Stimulus:
+def generate_stimulus(spec: SampleSpec, rng: random.Random) -> Stimulus:
     num_operations = spec.params.get("num_operations", 3)
 
-    if len(spec.capabilities) > num_operations:
-        raise ValueError(f"cannot generate a sample with {num_operations} that has capabilities {spec.capabilities}")
+    if len(spec.demands) > num_operations:
+        raise ValueError(f"cannot generate a sample with {num_operations} that has demands {spec.demands}")
 ```
 next we will generate the specific question and calculate the answer. in our case we will simply pick a starting number and append a random operation and number (prioritising operations that have not yet been added) and adding brackets around the question each time and tracking what the answer is until we reach the number of operations required.
 
@@ -173,12 +173,12 @@ next we will generate the specific question and calculate the answer. in our cas
         "division": "/",
     }
 
-    remaining = set(spec.capabilities)
+    remaining = set(spec.demands)
     question = str(rng.randint(min_value, max_value))
     answer = int(question)
 
     for _ in range(num_operations):
-        choices = remaining if remaining else spec.capabilities
+        choices = remaining if remaining else spec.demands
         op = rng.choice(sorted(choices))
         remaining.discard(op)
 
@@ -211,16 +211,16 @@ run(generate_stimulus, specs, n_reps=2, output_dir=out_dir, seed=12345, max_work
 
 #### validation
 
-This is an idealised example and in real examples with more complicated generation it is useful to add validation to check that each sample requires the capabilities in its spec. To that end you can define validator functions which will automatically run on each sample with a given capability, for example if we might want to add a validator for each of our capabilities to check if the question contains the correct symbol.
+This is an idealised example and in real examples with more complicated generation it is useful to add validation to check that each sample requires the demands in its spec. To that end you can define validator functions which will automatically run on each sample with a given demand, for example if we might want to add a validator for each of our demands to check if the question contains the correct symbol.
 ```python
-@validates(name="contains + symbol", capability="addition")
-def check_contains_addition(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="contains + symbol", demand="addition")
+def check_contains_addition(stimulus: Stimulus, spec: SampleSpec) -> None:
     assert "+" in stimulus.messages[0].content
 ```
-We can also specify validators that will run on all samples regardless of the capabilities, this is useful for checking the parameters are being followed.
+We can also specify validators that will run on all samples regardless of the demands, this is useful for checking the parameters are being followed.
 ```python
-@validates(name="check number of operations", capability="*")
-def check_num_ops(stimulus: Stimulus, spec: Spec) -> None:
+@validates(name="check number of operations", demand="*")
+def check_num_ops(stimulus: Stimulus, spec: SampleSpec) -> None:
     expected = spec.params.get("num_operations")
     if expected is None:
         return

@@ -16,14 +16,14 @@ from dataset.stimulus import (
     Message,
     Stimulus,
 )
-from generation.generate import Spec
+from generation.generate import SampleSpec
 
 
 def _example_stimulus() -> Stimulus:
     return Stimulus(
         sample_id="s_001",
-        spec=Spec(
-            capabilities={"spatial_perspective", "first_order_belief"},
+        spec=SampleSpec(
+            demands={"spatial_perspective", "first_order_belief"},
             params={"grid_size": 4, "distractors": 2},
         ),
         messages=[
@@ -51,9 +51,9 @@ def test_to_jsonable_sorts_sets_deterministically():
 
 
 def test_to_jsonable_recurses_through_dataclass_and_set():
-    spec = Spec(capabilities={"b_cap", "a_cap"}, params={"n": 3})
+    spec = SampleSpec(demands={"b_cap", "a_cap"}, params={"n": 3})
     out = to_jsonable(spec)
-    assert out == {"capabilities": ["a_cap", "b_cap"], "params": {"n": 3}}
+    assert out == {"demands": ["a_cap", "b_cap"], "params": {"n": 3}}
 
 
 def test_to_jsonable_rejects_unsupported_type():
@@ -67,7 +67,7 @@ def test_stimulus_round_trip_via_json():
     restored = stimulus_from_dict(json.loads(payload))
 
     assert restored.sample_id == original.sample_id
-    assert restored.spec.capabilities == original.spec.capabilities
+    assert restored.spec.demands == original.spec.demands
     assert restored.spec.params == original.spec.params
     assert restored.target == original.target
     assert restored.validators_ran == original.validators_ran
@@ -87,7 +87,7 @@ def test_stimulus_round_trip_via_json():
 
 def test_content_text_serialises_with_text_key():
     s = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[Message(role="user", content=[ContentText(text="hi")])],
         target="",
     )
@@ -97,7 +97,7 @@ def test_content_text_serialises_with_text_key():
 
 def test_content_image_serialises_with_image_key_and_detail():
     s = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -129,7 +129,7 @@ def test_content_image_from_bytes_produces_data_uri():
 def test_content_image_from_bytes_round_trip_preserves_data_uri():
     png_bytes = b"\x89PNG\r\n\x1a\n" + b"abc"
     original = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -149,7 +149,7 @@ def test_content_image_from_bytes_round_trip_preserves_data_uri():
 
 def test_content_audio_serialises_with_audio_key_and_format():
     s = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -168,7 +168,7 @@ def test_content_audio_serialises_with_audio_key_and_format():
 
 def test_content_audio_round_trip_preserves_format():
     original = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -199,7 +199,7 @@ def test_content_audio_from_bytes_mp3_uses_audio_mpeg_mime():
 def test_stimulus_from_dict_rejects_audio_without_format():
     payload = {
         "sample_id": "s_0",
-        "spec": {"capabilities": [], "params": {}},
+        "spec": {"demands": [], "params": {}},
         "messages": [
             {
                 "role": "user",
@@ -219,7 +219,7 @@ def test_stimulus_from_dict_rejects_audio_without_format():
 
 def test_content_video_serialises_with_video_key_and_format():
     s = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -238,7 +238,7 @@ def test_content_video_serialises_with_video_key_and_format():
 
 def test_content_video_round_trip_preserves_format():
     original = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -269,7 +269,7 @@ def test_content_video_from_bytes_mov_uses_quicktime_mime():
 def test_stimulus_from_dict_rejects_video_without_format():
     payload = {
         "sample_id": "s_0",
-        "spec": {"capabilities": [], "params": {}},
+        "spec": {"demands": [], "params": {}},
         "messages": [
             {
                 "role": "user",
@@ -289,7 +289,7 @@ def test_stimulus_from_dict_rejects_video_without_format():
 
 def test_content_document_serialises_with_all_fields():
     s = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -315,7 +315,7 @@ def test_content_document_serialises_with_all_fields():
 
 def test_content_document_round_trip_preserves_optional_fields():
     original = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -346,7 +346,7 @@ def test_content_document_optional_fields_default_to_none():
 
 def test_content_document_round_trip_with_only_document_field():
     original = Stimulus(
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[
             Message(
                 role="user",
@@ -377,7 +377,7 @@ def test_content_document_from_bytes_keeps_filename_when_provided():
 def test_stimulus_from_dict_rejects_unknown_content_type():
     payload = {
         "sample_id": "s_0",
-        "spec": {"capabilities": [], "params": {}},
+        "spec": {"demands": [], "params": {}},
         "messages": [
             {
                 "role": "user",
@@ -392,16 +392,16 @@ def test_stimulus_from_dict_rejects_unknown_content_type():
         stimulus_from_dict(payload)
 
 
-def test_stimulus_capabilities_serialise_as_sorted_list():
+def test_stimulus_demands_serialise_as_sorted_list():
     s = _example_stimulus()
     d = stimulus_to_dict(s)
-    assert d["spec"]["capabilities"] == ["first_order_belief", "spatial_perspective"]
+    assert d["spec"]["demands"] == ["first_order_belief", "spatial_perspective"]
 
 
 def test_validators_ran_defaults_to_empty():
     s = Stimulus(
         sample_id="x",
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[],
         target="",
     )
@@ -411,9 +411,56 @@ def test_validators_ran_defaults_to_empty():
 def test_empty_validators_ran_round_trips():
     original = Stimulus(
         sample_id="x",
-        spec=Spec(),
+        spec=SampleSpec(),
         messages=[],
         target="",
     )
     restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
     assert restored.validators_ran == []
+
+
+# ---- functional spec --------------------------------------------------------
+
+
+def test_stimulus_round_trip_preserves_functional():
+    original = Stimulus(
+        sample_id="s_0",
+        spec=SampleSpec(demands={"cap_exp"}, params={"i": 0}),
+        functional=SampleSpec(demands={"cap_func"}, params={"shared": 1}),
+        messages=[Message(role="user", content="hi")],
+        target="x",
+    )
+    restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
+    assert restored.functional is not None
+    assert restored.functional.demands == {"cap_func"}
+    assert restored.functional.params == {"shared": 1}
+
+
+def test_stimulus_round_trip_with_no_functional_defaults_to_none():
+    original = Stimulus(
+        sample_id="s_0",
+        spec=SampleSpec(),
+        messages=[],
+        target="",
+    )
+    restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
+    assert restored.functional is None
+
+
+def test_stimulus_serialises_functional_as_top_level_field():
+    s = Stimulus(
+        sample_id="s_0",
+        spec=SampleSpec(demands={"cap_exp"}),
+        functional=SampleSpec(demands={"cap_func"}),
+        messages=[],
+        target="",
+    )
+    d = stimulus_to_dict(s)
+    assert d["spec"] == {"demands": ["cap_exp"], "params": {}}
+    assert d["functional"] == {"demands": ["cap_func"], "params": {}}
+
+
+def test_stimulus_serialises_functional_as_null_by_default():
+    s = Stimulus(spec=SampleSpec(), messages=[], target="")
+    d = stimulus_to_dict(s)
+    assert d["functional"] is None

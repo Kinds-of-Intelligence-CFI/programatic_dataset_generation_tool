@@ -26,7 +26,7 @@ from dataset.stimulus import (
 )
 from dataset.writer import write_dataset
 from evaluation.inspect_utils import load_dataset
-from generation.generate import Spec
+from generation.generate import SampleSpec
 
 
 def _write(
@@ -35,7 +35,7 @@ def _write(
     name: str = "ds",
 ) -> Path:
     out = tmp_path / name
-    specs = [s.spec for s in stimuli] or [Spec()]
+    specs = [s.spec for s in stimuli] or [SampleSpec()]
     write_dataset(
         out,
         name=name,
@@ -53,12 +53,12 @@ def _stimulus(
     messages: list[Message] | None = None,
     target: str = "answer",
     metadata: dict | None = None,
-    capabilities: set[str] | None = None,
+    demands: set[str] | None = None,
 ) -> Stimulus:
     return Stimulus(
         sample_id=sample_id,
-        spec=Spec(
-            capabilities=capabilities if capabilities is not None else {"cap_a"},
+        spec=SampleSpec(
+            demands=demands if demands is not None else {"cap_a"},
             params={"n": 1},
         ),
         messages=messages
@@ -93,12 +93,12 @@ def test_load_dataset_preserves_jsonl_order_and_ids(tmp_path: Path):
 
 
 def test_stimulus_metadata_block_contains_spec_and_dataset_dir(tmp_path: Path):
-    stim = _stimulus("s_0", capabilities={"cap_a", "cap_b"})
+    stim = _stimulus("s_0", demands={"cap_a", "cap_b"})
     out = _write(tmp_path, [stim])
 
     sample = load_dataset(out)[0]
     block = sample.metadata["_stimulus"]
-    assert block["spec"]["capabilities"] == ["cap_a", "cap_b"]
+    assert block["spec"]["demands"] == ["cap_a", "cap_b"]
     assert block["dataset_dir"] == str(out)
     assert block["validators_ran"] == []
     # messages no longer live in metadata - they're on Sample.input
@@ -458,3 +458,27 @@ def test_empty_dataset_loads_with_zero_samples(tmp_path: Path):
     assert isinstance(ds, MemoryDataset)
     assert ds.name == "empty"
     assert len(ds) == 0
+
+
+# ---- functional spec --------------------------------------------------------
+
+
+def test_stimulus_metadata_exposes_functional_when_set(tmp_path: Path):
+    stim = Stimulus(
+        sample_id="s_0",
+        spec=SampleSpec(demands={"cap_exp"}, params={"i": 0}),
+        functional=SampleSpec(demands={"cap_func"}, params={"shared": 1}),
+        messages=[Message(role="user", content="hi")],
+        target="x",
+    )
+    out = _write(tmp_path, [stim])
+    sample = load_dataset(out)[0]
+    block = sample.metadata["_stimulus"]
+    assert block["functional"] == {"demands": ["cap_func"], "params": {"shared": 1}}
+    assert block["spec"] == {"demands": ["cap_exp"], "params": {"i": 0}}
+
+
+def test_stimulus_metadata_exposes_functional_as_none_when_absent(tmp_path: Path):
+    out = _write(tmp_path, [_stimulus("s_0")])
+    sample = load_dataset(out)[0]
+    assert sample.metadata["_stimulus"]["functional"] is None
