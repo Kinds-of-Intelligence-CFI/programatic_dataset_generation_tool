@@ -96,10 +96,10 @@ export function ManifestTab({ data }: { data: DatasetData }) {
             >
               <span style={{ color: WF.accent }}>{s.index}</span>
               <span>
-                {s.spec.demands.length ? (
-                  s.spec.demands.map((d) => (
-                    <Pill key={d} style={{ marginRight: 4 }}>
-                      {d}
+                {Object.keys(s.spec.demands).length ? (
+                  Object.entries(s.spec.demands).map(([name, level]) => (
+                    <Pill key={name} style={{ marginRight: 4 }}>
+                      {`${name}: ${level}`}
                     </Pill>
                   ))
                 ) : (

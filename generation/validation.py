@@ -18,6 +18,7 @@ class ValidatorEntry:
     name: str
     demand: str
     fn: ValidatorFn
+    level: int | None = None
 
 
 _REGISTRY: dict[str, ValidatorEntry] = {}
@@ -41,18 +42,22 @@ class ValidationError(Exception):
         self.original = original
 
 
-def validates(*, name: str, demand: str) -> Callable[[ValidatorFn], ValidatorFn]:
+def validates(
+    *, name: str, demand: str, level: int | None = None
+) -> Callable[[ValidatorFn], ValidatorFn]:
     """Register a validator.
 
     `name` is the string recorded in `Stimulus.validators_ran` when this validator
     runs; it must be unique across the registry. `demand` is matched against
-    `spec.demands`; the literal `"*"` matches every stimulus.
+    `spec.demands`; the literal `"*"` matches every stimulus. If `level` is set
+    the validator only runs when `spec.demands[demand] == level` - in particular
+    `level=0` makes the validator an "assert this demand is absent" check.
     """
 
     def decorator(fn: ValidatorFn) -> ValidatorFn:
         if name in _REGISTRY:
             raise ValueError(f"Validator name {name!r} is already registered")
-        _REGISTRY[name] = ValidatorEntry(name=name, demand=demand, fn=fn)
+        _REGISTRY[name] = ValidatorEntry(name=name, demand=demand, fn=fn, level=level)
         return fn
 
     return decorator
@@ -68,11 +73,7 @@ def registered_demands() -> set[str]:
 
 def run_validators(stimulus: "Stimulus", spec: "SampleSpec") -> None:
     matching = sorted(
-        (
-            e
-            for e in _REGISTRY.values()
-            if e.demand == WILDCARD or e.demand in spec.demands
-        ),
+        (e for e in _REGISTRY.values() if _entry_matches(e, spec)),
         key=lambda e: e.name,
     )
     for entry in matching:
@@ -86,6 +87,14 @@ def run_validators(stimulus: "Stimulus", spec: "SampleSpec") -> None:
                 original=exc,
             ) from exc
     stimulus.validators_ran = [e.name for e in matching]
+
+
+def _entry_matches(entry: ValidatorEntry, spec: "SampleSpec") -> bool:
+    if entry.demand == WILDCARD:
+        return True
+    if entry.demand not in spec.demands:
+        return False
+    return entry.level is None or spec.demands[entry.demand] == entry.level
 
 
 def _clear_registry() -> None:

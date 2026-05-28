@@ -29,11 +29,11 @@ def build_image_dataset(out: Path) -> Path:
     """
     specs = [
         SampleSpec(
-            demands=set(),
+            demands={},
             params={"stimulus_set": "control_1", "question_type": "visual"},
         ),
         SampleSpec(
-            demands={"spatial_perspective"},
+            demands={"spatial_perspective": 1},
             params={"stimulus_set": "level_1", "question_type": "spatial"},
         ),
     ]
@@ -70,8 +70,8 @@ def build_image_dataset(out: Path) -> Path:
 def build_text_dataset(out: Path) -> Path:
     """A two-stimulus, asset-free, text-only dataset."""
     specs = [
-        SampleSpec(demands=set(), params={"topic": "geo", "level": 1}),
-        SampleSpec(demands={"recall"}, params={"topic": "geo", "level": 2}),
+        SampleSpec(demands={}, params={"topic": "geo", "level": 1}),
+        SampleSpec(demands={"recall": 1}, params={"topic": "geo", "level": 2}),
     ]
     stimuli = [
         Stimulus(

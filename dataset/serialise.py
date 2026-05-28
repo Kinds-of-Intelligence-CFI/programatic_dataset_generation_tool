@@ -56,7 +56,7 @@ def _spec_from_dict(d: dict | None) -> SampleSpec | None:
     if d is None:
         return None
     return SampleSpec(
-        demands=set(d["demands"]),
+        demands=dict(d["demands"]),
         params=dict(d["params"]),
     )
 

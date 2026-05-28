@@ -124,12 +124,12 @@ export function DatasetPage({ data }: { data: DatasetData }) {
                   <div style={{ color: WF.accent }}>{s.sample_id}</div>
                   <div>{s.spec_index ?? "?"}</div>
                   <div style={{ overflow: "hidden" }}>
-                    {s.spec.demands.length === 0 ? (
+                    {Object.keys(s.spec.demands).length === 0 ? (
                       <Pill tone="ghost">control</Pill>
                     ) : (
                       <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
-                        {s.spec.demands.map((d) => (
-                          <Pill key={d}>{d}</Pill>
+                        {Object.entries(s.spec.demands).map(([name, level]) => (
+                          <Pill key={name}>{`${name}: ${level}`}</Pill>
                         ))}
                       </div>
                     )}

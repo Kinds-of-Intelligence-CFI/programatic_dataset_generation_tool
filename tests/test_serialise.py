@@ -23,7 +23,7 @@ def _example_stimulus() -> Stimulus:
     return Stimulus(
         sample_id="s_001",
         spec=SampleSpec(
-            demands={"spatial_perspective", "first_order_belief"},
+            demands={"spatial_perspective": 2, "first_order_belief": 1},
             params={"grid_size": 4, "distractors": 2},
         ),
         messages=[
@@ -50,10 +50,10 @@ def test_to_jsonable_sorts_sets_deterministically():
     assert out == ["another", "caps", "third"]
 
 
-def test_to_jsonable_recurses_through_dataclass_and_set():
-    spec = SampleSpec(demands={"b_cap", "a_cap"}, params={"n": 3})
+def test_to_jsonable_recurses_through_dataclass_and_dict():
+    spec = SampleSpec(demands={"b_cap": 2, "a_cap": 1}, params={"n": 3})
     out = to_jsonable(spec)
-    assert out == {"demands": ["a_cap", "b_cap"], "params": {"n": 3}}
+    assert out == {"demands": {"b_cap": 2, "a_cap": 1}, "params": {"n": 3}}
 
 
 def test_to_jsonable_rejects_unsupported_type():
@@ -199,7 +199,7 @@ def test_content_audio_from_bytes_mp3_uses_audio_mpeg_mime():
 def test_stimulus_from_dict_rejects_audio_without_format():
     payload = {
         "sample_id": "s_0",
-        "spec": {"demands": [], "params": {}},
+        "spec": {"demands": {}, "params": {}},
         "messages": [
             {
                 "role": "user",
@@ -269,7 +269,7 @@ def test_content_video_from_bytes_mov_uses_quicktime_mime():
 def test_stimulus_from_dict_rejects_video_without_format():
     payload = {
         "sample_id": "s_0",
-        "spec": {"demands": [], "params": {}},
+        "spec": {"demands": {}, "params": {}},
         "messages": [
             {
                 "role": "user",
@@ -377,7 +377,7 @@ def test_content_document_from_bytes_keeps_filename_when_provided():
 def test_stimulus_from_dict_rejects_unknown_content_type():
     payload = {
         "sample_id": "s_0",
-        "spec": {"demands": [], "params": {}},
+        "spec": {"demands": {}, "params": {}},
         "messages": [
             {
                 "role": "user",
@@ -392,10 +392,10 @@ def test_stimulus_from_dict_rejects_unknown_content_type():
         stimulus_from_dict(payload)
 
 
-def test_stimulus_demands_serialise_as_sorted_list():
+def test_stimulus_demands_serialise_as_dict():
     s = _example_stimulus()
     d = stimulus_to_dict(s)
-    assert d["spec"]["demands"] == ["first_order_belief", "spatial_perspective"]
+    assert d["spec"]["demands"] == {"spatial_perspective": 2, "first_order_belief": 1}
 
 
 def test_validators_ran_defaults_to_empty():
@@ -425,14 +425,14 @@ def test_empty_validators_ran_round_trips():
 def test_stimulus_round_trip_preserves_functional():
     original = Stimulus(
         sample_id="s_0",
-        spec=SampleSpec(demands={"cap_exp"}, params={"i": 0}),
-        functional=SampleSpec(demands={"cap_func"}, params={"shared": 1}),
+        spec=SampleSpec(demands={"cap_exp": 2}, params={"i": 0}),
+        functional=SampleSpec(demands={"cap_func": 3}, params={"shared": 1}),
         messages=[Message(role="user", content="hi")],
         target="x",
     )
     restored = stimulus_from_dict(json.loads(json.dumps(stimulus_to_dict(original))))
     assert restored.functional is not None
-    assert restored.functional.demands == {"cap_func"}
+    assert restored.functional.demands == {"cap_func": 3}
     assert restored.functional.params == {"shared": 1}
 
 
@@ -450,14 +450,14 @@ def test_stimulus_round_trip_with_no_functional_defaults_to_none():
 def test_stimulus_serialises_functional_as_top_level_field():
     s = Stimulus(
         sample_id="s_0",
-        spec=SampleSpec(demands={"cap_exp"}),
-        functional=SampleSpec(demands={"cap_func"}),
+        spec=SampleSpec(demands={"cap_exp": 1}),
+        functional=SampleSpec(demands={"cap_func": 1}),
         messages=[],
         target="",
     )
     d = stimulus_to_dict(s)
-    assert d["spec"] == {"demands": ["cap_exp"], "params": {}}
-    assert d["functional"] == {"demands": ["cap_func"], "params": {}}
+    assert d["spec"] == {"demands": {"cap_exp": 1}, "params": {}}
+    assert d["functional"] == {"demands": {"cap_func": 1}, "params": {}}
 
 
 def test_stimulus_serialises_functional_as_null_by_default():

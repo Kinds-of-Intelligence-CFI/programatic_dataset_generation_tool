@@ -61,6 +61,7 @@ def run(
     """
     if functional is not None:
         _check_param_conflicts(functional, specs)
+        _check_demand_conflicts(functional, specs)
     _warn_about_missing_validators(specs, functional)
 
     jobs = [
@@ -133,7 +134,7 @@ def _merge(functional: SampleSpec | None, spec: SampleSpec) -> SampleSpec:
     if functional is None:
         return spec
     return SampleSpec(
-        demands=functional.demands | spec.demands,
+        demands={**functional.demands, **spec.demands},
         params={**functional.params, **spec.params},
     )
 
@@ -147,6 +148,19 @@ def _check_param_conflicts(functional: SampleSpec, specs: list[SampleSpec]) -> N
             "Param keys appear in both functional and experimental specs: "
             + ", ".join(sorted(conflicts))
             + ". A functional param is by definition the same for every sample; "
+            "remove it from the experimental specs or from functional."
+        )
+
+
+def _check_demand_conflicts(functional: SampleSpec, specs: list[SampleSpec]) -> None:
+    conflicts: set[str] = set()
+    for spec in specs:
+        conflicts.update(functional.demands.keys() & spec.demands.keys())
+    if conflicts:
+        raise ValueError(
+            "Demand keys appear in both functional and experimental specs: "
+            + ", ".join(sorted(conflicts))
+            + ". A functional demand is by definition the same for every sample; "
             "remove it from the experimental specs or from functional."
         )
 

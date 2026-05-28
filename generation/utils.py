@@ -16,9 +16,10 @@ WeightMap = dict[Predicate | Literal["default"], int]
 def grid(grid_spec: dict[str, Iterable[Any]]) -> list[SampleSpec]:
     """Cartesian product of a dict of value-lists into a list of SampleSpecs.
 
-    The key "demands" is special: each value at that key becomes the
-    full set of demands for that combination. All other keys are placed
-    verbatim into SampleSpec.params.
+    The key "demands" is special: each value at that key must be a
+    mapping {demand_name: level} and becomes the full demands dict for
+    that combination. All other keys are placed verbatim into
+    SampleSpec.params.
     """
     if not grid_spec:
         return [SampleSpec()]
@@ -28,11 +29,11 @@ def grid(grid_spec: dict[str, Iterable[Any]]) -> list[SampleSpec]:
 
     out: list[SampleSpec] = []
     for combo in itertools.product(*value_lists):
-        demands: set[str] = set()
+        demands: dict[str, int] = {}
         params: dict[str, Any] = {}
         for key, val in zip(keys, combo):
             if key == DEMANDS_KEY:
-                demands = set(val)
+                demands = dict(val)
             else:
                 params[key] = val
         out.append(SampleSpec(demands=demands, params=params))

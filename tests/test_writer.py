@@ -286,7 +286,7 @@ def test_normalize_dedups_across_modalities_when_bytes_match(tmp_path: Path):
 def _stimulus(sample_id: str, target: str = "x") -> Stimulus:
     return Stimulus(
         sample_id=sample_id,
-        spec=SampleSpec(demands={"cap_a"}, params={"n": 1}),
+        spec=SampleSpec(demands={"cap_a": 1}, params={"n": 1}),
         messages=[Message(role="user", content="hello")],
         target=target,
     )
@@ -318,7 +318,7 @@ def test_write_jsonl_consumes_iterable_lazily(tmp_path: Path):
 
 def test_write_manifest_contains_all_required_fields(tmp_path: Path):
     path = tmp_path / "manifest.json"
-    specs = [SampleSpec(demands={"b", "a"}, params={"k": 1})]
+    specs = [SampleSpec(demands={"b": 2, "a": 1}, params={"k": 1})]
     write_manifest(
         path,
         name="my_dataset",
@@ -334,20 +334,20 @@ def test_write_manifest_contains_all_required_fields(tmp_path: Path):
     assert m["n_stimuli"] == 3
     assert "library_version" in m
     assert "timestamp" in m
-    assert m["specs"] == [{"demands": ["a", "b"], "params": {"k": 1}}]
+    assert m["specs"] == [{"demands": {"b": 2, "a": 1}, "params": {"k": 1}}]
 
 
 def test_write_manifest_includes_functional_when_supplied(tmp_path: Path):
     path = tmp_path / "manifest.json"
-    specs = [SampleSpec(demands={"cap_a"}, params={"k": 1})]
-    functional = SampleSpec(demands={"shared_cap"}, params={"shared_key": 7})
+    specs = [SampleSpec(demands={"cap_a": 1}, params={"k": 1})]
+    functional = SampleSpec(demands={"shared_cap": 2}, params={"shared_key": 7})
     write_manifest(
         path, name="x", specs=specs, global_seed=0, n_reps=1, n_stimuli=1,
         functional=functional,
     )
     m = json.loads(path.read_text())
-    assert m["functional"] == {"demands": ["shared_cap"], "params": {"shared_key": 7}}
-    assert m["specs"] == [{"demands": ["cap_a"], "params": {"k": 1}}]
+    assert m["functional"] == {"demands": {"shared_cap": 2}, "params": {"shared_key": 7}}
+    assert m["specs"] == [{"demands": {"cap_a": 1}, "params": {"k": 1}}]
 
 
 def test_write_manifest_functional_is_null_when_not_supplied(tmp_path: Path):
@@ -364,7 +364,7 @@ def test_write_dataset_end_to_end_with_inline_image(tmp_path: Path):
     output_dir = tmp_path / "demo_dataset"
     output_dir.mkdir()
 
-    specs = [SampleSpec(demands={"cap_a"}, params={"i": i}) for i in range(5)]
+    specs = [SampleSpec(demands={"cap_a": 1}, params={"i": i}) for i in range(5)]
 
     def build_stimuli():
         for i, spec in enumerate(specs):

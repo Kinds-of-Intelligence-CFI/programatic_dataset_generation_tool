@@ -8,6 +8,19 @@ import { varyingParamKeys } from "../lib/derive";
 
 type StimTab = "rendered" | "spec" | "validators" | "raw";
 
+function demandsText(demands: Record<string, number>): string {
+  return Object.entries(demands)
+    .map(([name, level]) => `${name}: ${level}`)
+    .join(", ");
+}
+
+function firstDemandLabel(demands: Record<string, number>): string {
+  const entries = Object.entries(demands);
+  if (entries.length === 0) return "";
+  const [name, level] = entries[0];
+  return `${name}: ${level}`;
+}
+
 export function StimulusPage({ data }: { data: DatasetData }) {
   const { manifest, stimuli } = data;
   const { sampleId } = useParams();
@@ -28,7 +41,7 @@ export function StimulusPage({ data }: { data: DatasetData }) {
     if (!q) return true;
     return (
       s.sample_id.toLowerCase().includes(q) ||
-      s.spec.demands.join(" ").toLowerCase().includes(q) ||
+      demandsText(s.spec.demands).toLowerCase().includes(q) ||
       JSON.stringify(s.spec.params).toLowerCase().includes(q)
     );
   });
@@ -166,10 +179,10 @@ function Sidebar({
               </span>
               <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {s.spec.demands.length === 0 ? (
+                  {Object.keys(s.spec.demands).length === 0 ? (
                     <span style={{ color: WF.textDim }}>(control)</span>
                   ) : (
-                    s.spec.demands[0]
+                    firstDemandLabel(s.spec.demands)
                   )}
                 </span>
                 {sub && <span style={{ fontSize: 9, color: WF.textDim }}>{sub}</span>}
@@ -230,10 +243,12 @@ function Header({
         spec {stim.spec_index ?? "?"}
       </span>
       <span style={{ color: WF.textDim }}>·</span>
-      {stim.spec.demands.length === 0 ? (
+      {Object.keys(stim.spec.demands).length === 0 ? (
         <Pill tone="ghost">control</Pill>
       ) : (
-        stim.spec.demands.map((d) => <Pill key={d}>{d}</Pill>)
+        Object.entries(stim.spec.demands).map(([name, level]) => (
+          <Pill key={name}>{`${name}: ${level}`}</Pill>
+        ))
       )}
       <Pill tone="ghost">{stim.modality}</Pill>
       <span style={{ flex: 1 }} />
@@ -438,7 +453,9 @@ function SpecMeta({ stim }: { stim: StimulusRecord }) {
   const specRows: [string, string][] = [
     [
       "demands",
-      stim.spec.demands.length ? stim.spec.demands.join(", ") : "(empty — control)",
+      Object.keys(stim.spec.demands).length
+        ? demandsText(stim.spec.demands)
+        : "(empty — control)",
     ],
     ...Object.entries(stim.spec.params).map(
       ([k, v]) => [`params.${k}`, formatParam(v)] as [string, string],

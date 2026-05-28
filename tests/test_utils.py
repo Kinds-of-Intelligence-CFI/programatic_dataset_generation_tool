@@ -12,12 +12,12 @@ def test_grid_cartesian_product_count():
     assert len(specs) == 6
 
 
-def test_grid_demands_key_becomes_set():
-    specs = grid({"demands": [set(), {"cap_a"}, {"cap_a", "cap_b"}]})
-    demand_sets = [s.demands for s in specs]
-    assert set() in demand_sets
-    assert {"cap_a"} in demand_sets
-    assert {"cap_a", "cap_b"} in demand_sets
+def test_grid_demands_key_becomes_dict():
+    specs = grid({"demands": [{}, {"cap_a": 1}, {"cap_a": 2, "cap_b": 1}]})
+    demand_dicts = [s.demands for s in specs]
+    assert {} in demand_dicts
+    assert {"cap_a": 1} in demand_dicts
+    assert {"cap_a": 2, "cap_b": 1} in demand_dicts
     for s in specs:
         assert "demands" not in s.params
 
@@ -27,7 +27,7 @@ def test_grid_other_keys_become_params():
     assert len(specs) == 1
     s = specs[0]
     assert s.params == {"size": 3, "n_distractors": 2}
-    assert s.demands == set()
+    assert s.demands == {}
 
 
 def test_grid_empty_dict_returns_one_empty_spec():
@@ -47,13 +47,13 @@ def test_grid_value_order_matches_itertools_product():
     assert pairs == [(1, 10), (1, 20), (2, 10), (2, 20)]
 
 
-def test_grid_demands_accepts_any_iterable():
-    specs = grid({"demands": [["cap_a"], ("cap_a", "cap_b")]})
-    demand_sets = [s.demands for s in specs]
-    assert {"cap_a"} in demand_sets
-    assert {"cap_a", "cap_b"} in demand_sets
+def test_grid_demands_accepts_any_mapping():
+    specs = grid({"demands": [{"cap_a": 1}, {"cap_a": 1, "cap_b": 2}]})
+    demand_dicts = [s.demands for s in specs]
+    assert {"cap_a": 1} in demand_dicts
+    assert {"cap_a": 1, "cap_b": 2} in demand_dicts
     for s in specs:
-        assert isinstance(s.demands, set)
+        assert isinstance(s.demands, dict)
 
 
 def test_grid_does_not_share_param_dicts():
@@ -62,24 +62,33 @@ def test_grid_does_not_share_param_dicts():
     assert "x" not in specs[1].params
 
 
-def test_grid_does_not_share_demand_sets():
-    specs = grid({"demands": [{"cap_a"}, {"cap_b"}]})
-    specs[0].demands.add("extra")
+def test_grid_does_not_share_demand_dicts():
+    specs = grid({"demands": [{"cap_a": 1}, {"cap_b": 2}]})
+    specs[0].demands["extra"] = 9
     assert "extra" not in specs[1].demands
+
+
+def test_grid_demand_dict_independent_of_source():
+    source = {"cap_a": 1}
+    specs = grid({"demands": [source]})
+    specs[0].demands["cap_a"] = 99
+    assert source == {"cap_a": 1}
 
 
 def test_grid_combines_demands_with_params():
     specs = grid({
-        "demands": [set(), {"cap_a"}],
+        "demands": [{}, {"cap_a": 1}],
         "size": [3, 4],
     })
     assert len(specs) == 4
-    combos = {(frozenset(s.demands), s.params["size"]) for s in specs}
+    combos = {
+        (tuple(sorted(s.demands.items())), s.params["size"]) for s in specs
+    }
     assert combos == {
-        (frozenset(), 3),
-        (frozenset(), 4),
-        (frozenset({"cap_a"}), 3),
-        (frozenset({"cap_a"}), 4),
+        ((), 3),
+        ((), 4),
+        ((("cap_a", 1),), 3),
+        ((("cap_a", 1),), 4),
     }
 
 

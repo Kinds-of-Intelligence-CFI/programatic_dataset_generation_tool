@@ -53,12 +53,12 @@ def _stimulus(
     messages: list[Message] | None = None,
     target: str = "answer",
     metadata: dict | None = None,
-    demands: set[str] | None = None,
+    demands: dict[str, int] | None = None,
 ) -> Stimulus:
     return Stimulus(
         sample_id=sample_id,
         spec=SampleSpec(
-            demands=demands if demands is not None else {"cap_a"},
+            demands=demands if demands is not None else {"cap_a": 1},
             params={"n": 1},
         ),
         messages=messages
@@ -93,12 +93,12 @@ def test_load_dataset_preserves_jsonl_order_and_ids(tmp_path: Path):
 
 
 def test_stimulus_metadata_block_contains_spec_and_dataset_dir(tmp_path: Path):
-    stim = _stimulus("s_0", demands={"cap_a", "cap_b"})
+    stim = _stimulus("s_0", demands={"cap_a": 2, "cap_b": 1})
     out = _write(tmp_path, [stim])
 
     sample = load_dataset(out)[0]
     block = sample.metadata["_stimulus"]
-    assert block["spec"]["demands"] == ["cap_a", "cap_b"]
+    assert block["spec"]["demands"] == {"cap_a": 2, "cap_b": 1}
     assert block["dataset_dir"] == str(out)
     assert block["validators_ran"] == []
     # messages no longer live in metadata - they're on Sample.input
@@ -466,16 +466,16 @@ def test_empty_dataset_loads_with_zero_samples(tmp_path: Path):
 def test_stimulus_metadata_exposes_functional_when_set(tmp_path: Path):
     stim = Stimulus(
         sample_id="s_0",
-        spec=SampleSpec(demands={"cap_exp"}, params={"i": 0}),
-        functional=SampleSpec(demands={"cap_func"}, params={"shared": 1}),
+        spec=SampleSpec(demands={"cap_exp": 2}, params={"i": 0}),
+        functional=SampleSpec(demands={"cap_func": 3}, params={"shared": 1}),
         messages=[Message(role="user", content="hi")],
         target="x",
     )
     out = _write(tmp_path, [stim])
     sample = load_dataset(out)[0]
     block = sample.metadata["_stimulus"]
-    assert block["functional"] == {"demands": ["cap_func"], "params": {"shared": 1}}
-    assert block["spec"] == {"demands": ["cap_exp"], "params": {"i": 0}}
+    assert block["functional"] == {"demands": {"cap_func": 3}, "params": {"shared": 1}}
+    assert block["spec"] == {"demands": {"cap_exp": 2}, "params": {"i": 0}}
 
 
 def test_stimulus_metadata_exposes_functional_as_none_when_absent(tmp_path: Path):

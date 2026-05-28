@@ -80,13 +80,13 @@ def iter_stimuli(paths: DatasetPaths) -> Iterator[dict[str, Any]]:
 def canonical_spec(spec: dict[str, Any] | None) -> str:
     """Stable string form of a spec for equality matching.
 
-    ``demands`` already serialises to a sorted list and ``params`` come from the
-    same ``to_jsonable`` path on both sides, but ``sort_keys`` makes the match
-    robust to any ordering differences.
+    Demands are emitted as ``{name: level}`` dicts and params as a plain dict;
+    both round-trip through ``to_jsonable`` on the writer side. ``sort_keys``
+    keeps the canonical form insensitive to dict ordering.
     """
     if spec is None:
         return "null"
-    demands = sorted(spec.get("demands", []))
+    demands = spec.get("demands", {})
     params = spec.get("params", {})
     return json.dumps({"demands": demands, "params": params}, sort_keys=True)
 

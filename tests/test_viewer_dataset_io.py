@@ -70,13 +70,13 @@ def test_spec_index_distinguishes_specs_differing_by_one_param(text_dataset: Pat
 def test_spec_index_handles_empty_demands(text_dataset: Path):
     paths = dataset_io.resolve_dataset(text_dataset)
     manifest = dataset_io.load_manifest(paths)
-    control = next(s for s in manifest["specs"] if s["demands"] == [])
+    control = next(s for s in manifest["specs"] if s["demands"] == {})
     assert dataset_io.canonical_spec(control) == dataset_io.canonical_spec(control)
 
 
 def test_spec_index_none_when_no_match():
-    orphan = {"demands": ["nope"], "params": {"x": 1}}
-    assert dataset_io.spec_index_of(orphan, [{"demands": [], "params": {}}]) is None
+    orphan = {"demands": {"nope": 1}, "params": {"x": 1}}
+    assert dataset_io.spec_index_of(orphan, [{"demands": {}, "params": {}}]) is None
 
 
 # ---- modality --------------------------------------------------------------
@@ -129,7 +129,7 @@ def test_iter_stimuli_ignores_blank_lines(tmp_path: Path):
     ds.mkdir()
     (ds / "manifest.json").write_text('{"name": "x", "specs": []}', encoding="utf-8")
     (ds / "stimuli.jsonl").write_text(
-        '{"sample_id": "0", "spec": {"demands": [], "params": {}}, '
+        '{"sample_id": "0", "spec": {"demands": {}, "params": {}}, '
         '"messages": [], "target": "t"}\n\n  \n',
         encoding="utf-8",
     )

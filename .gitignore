@@ -188,3 +188,4 @@ uv.lock
 viewer/frontend/node_modules/
 viewer/frontend/*.tsbuildinfo
 /.vscode
+/viewer/static/app

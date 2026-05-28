@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class SampleSpec:
-    demands: set[str] = field(default_factory=set)
+    demands: dict[str, int] = field(default_factory=dict)
     params: dict = field(default_factory=dict)
 
 

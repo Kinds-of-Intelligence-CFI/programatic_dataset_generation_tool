@@ -20,7 +20,7 @@ def _isolated_registry():
 
 
 def _stimulus(
-    demands: set[str],
+    demands: dict[str, int],
     sample_id: str = "s_001",
 ) -> tuple[Stimulus, SampleSpec]:
     spec = SampleSpec(demands=demands, params={})
@@ -42,6 +42,7 @@ def test_validates_decorator_registers_function():
     assert entry is not None
     assert entry.fn is check
     assert entry.demand == "cap_a"
+    assert entry.level is None
 
 
 def test_get_validator_returns_none_for_unregistered():
@@ -71,7 +72,7 @@ def test_multiple_validators_per_demand_all_run():
     def check_two(stimulus, spec):
         calls.append("two")
 
-    stimulus, spec = _stimulus({"cap_a"})
+    stimulus, spec = _stimulus({"cap_a": 1})
     run_validators(stimulus, spec)
     assert calls == ["one", "two"]
 
@@ -111,7 +112,7 @@ def test_run_validators_runs_for_all_spec_demands():
     def check_b(stimulus, spec):
         calls.append("b")
 
-    stimulus, spec = _stimulus({"cap_a", "cap_b"})
+    stimulus, spec = _stimulus({"cap_a": 1, "cap_b": 2})
     run_validators(stimulus, spec)
     assert sorted(calls) == ["a", "b"]
 
@@ -123,7 +124,7 @@ def test_run_validators_skips_demands_without_validators():
     def check_a(stimulus, spec):
         calls.append("a")
 
-    stimulus, spec = _stimulus({"cap_a", "cap_unregistered"})
+    stimulus, spec = _stimulus({"cap_a": 1, "cap_unregistered": 3})
     run_validators(stimulus, spec)
     assert calls == ["a"]
     assert stimulus.validators_ran == ["check_a"]
@@ -138,7 +139,7 @@ def test_run_validators_populates_validators_ran():
     def _b(s, sp):
         pass
 
-    stimulus, spec = _stimulus({"cap_a", "cap_b"})
+    stimulus, spec = _stimulus({"cap_a": 1, "cap_b": 1})
     run_validators(stimulus, spec)
     assert stimulus.validators_ran == ["check_a", "check_b"]
 
@@ -156,7 +157,7 @@ def test_validators_ran_is_sorted():
     def _m(s, sp):
         pass
 
-    stimulus, spec = _stimulus({"cap_a"})
+    stimulus, spec = _stimulus({"cap_a": 1})
     run_validators(stimulus, spec)
     assert stimulus.validators_ran == ["alpha", "mu", "zeta"]
 
@@ -166,7 +167,7 @@ def test_run_validators_empty_when_no_match():
     def _a(s, sp):
         pass
 
-    stimulus, spec = _stimulus({"unrelated"})
+    stimulus, spec = _stimulus({"unrelated": 1})
     run_validators(stimulus, spec)
     assert stimulus.validators_ran == []
 
@@ -178,8 +179,8 @@ def test_wildcard_validator_runs_for_all_specs():
     def universal(stimulus, spec):
         calls.append(stimulus.sample_id)
 
-    s1, sp1 = _stimulus(set(), sample_id="empty_demands")
-    s2, sp2 = _stimulus({"cap_a"}, sample_id="with_demand")
+    s1, sp1 = _stimulus({}, sample_id="empty_demands")
+    s2, sp2 = _stimulus({"cap_a": 1}, sample_id="with_demand")
     run_validators(s1, sp1)
     run_validators(s2, sp2)
 
@@ -195,7 +196,7 @@ def test_wildcard_validator_runs_once_per_sample():
     def universal(stimulus, spec):
         calls.append(stimulus.sample_id)
 
-    stimulus, spec = _stimulus({"cap_a", "cap_b", "cap_c"})
+    stimulus, spec = _stimulus({"cap_a": 1, "cap_b": 2, "cap_c": 3})
     run_validators(stimulus, spec)
 
     assert calls == ["s_001"]
@@ -211,7 +212,7 @@ def test_wildcard_and_demand_validators_both_run():
     def _s(s, sp):
         pass
 
-    stimulus, spec = _stimulus({"cap_a"})
+    stimulus, spec = _stimulus({"cap_a": 1})
     run_validators(stimulus, spec)
     assert stimulus.validators_ran == ["specific", "universal"]
 
@@ -221,7 +222,7 @@ def test_run_validators_raises_validation_error_with_context():
     def failing(stimulus, spec):
         raise AssertionError("expected 4 distractors, found 3")
 
-    stimulus, spec = _stimulus({"cap_a"}, sample_id="s_042")
+    stimulus, spec = _stimulus({"cap_a": 1}, sample_id="s_042")
     with pytest.raises(ValidationError) as excinfo:
         run_validators(stimulus, spec)
 
@@ -238,7 +239,7 @@ def test_validation_error_message_identifies_sample_and_validator():
     def failing(stimulus, spec):
         raise ValueError("bad")
 
-    stimulus, spec = _stimulus({"cap_a"}, sample_id="s_xyz")
+    stimulus, spec = _stimulus({"cap_a": 1}, sample_id="s_xyz")
     with pytest.raises(ValidationError) as excinfo:
         run_validators(stimulus, spec)
 
@@ -257,7 +258,104 @@ def test_validators_ran_not_set_when_validator_fails():
     def _bad(s, sp):
         raise AssertionError("nope")
 
-    stimulus, spec = _stimulus({"cap_a"})
+    stimulus, spec = _stimulus({"cap_a": 1})
     with pytest.raises(ValidationError):
         run_validators(stimulus, spec)
     assert stimulus.validators_ran == []
+
+
+# ---- level-aware validator filtering ----------------------------------------
+
+
+def test_unfiltered_validator_runs_at_any_level_including_zero():
+    seen: list[int] = []
+
+    @validates(name="check_wm", demand="wm")
+    def check(stimulus, spec):
+        seen.append(spec.demands["wm"])
+
+    for level in (0, 1, 3, 7):
+        stim, spec = _stimulus({"wm": level}, sample_id=f"s_{level}")
+        run_validators(stim, spec)
+
+    assert seen == [0, 1, 3, 7]
+
+
+def test_level_filtered_validator_runs_only_at_that_level():
+    seen: list[int] = []
+
+    @validates(name="check_wm_3", demand="wm", level=3)
+    def check(stimulus, spec):
+        seen.append(spec.demands["wm"])
+
+    stim, spec = _stimulus({"wm": 2}, sample_id="s_2")
+    run_validators(stim, spec)
+    assert stim.validators_ran == []
+
+    stim, spec = _stimulus({"wm": 3}, sample_id="s_3")
+    run_validators(stim, spec)
+    assert stim.validators_ran == ["check_wm_3"]
+
+    stim, spec = _stimulus({"wm": 5}, sample_id="s_5")
+    run_validators(stim, spec)
+    assert stim.validators_ran == []
+
+    assert seen == [3]
+
+
+def test_level_zero_validator_runs_only_when_demand_explicitly_absent():
+    seen: list[str] = []
+
+    @validates(name="assert_no_wm", demand="wm", level=0)
+    def check(stimulus, spec):
+        seen.append(stimulus.sample_id)
+
+    stim, spec = _stimulus({"wm": 0}, sample_id="absent")
+    run_validators(stim, spec)
+    assert stim.validators_ran == ["assert_no_wm"]
+
+    stim, spec = _stimulus({"wm": 1}, sample_id="present")
+    run_validators(stim, spec)
+    assert stim.validators_ran == []
+
+    stim, spec = _stimulus({}, sample_id="unspecified")
+    run_validators(stim, spec)
+    assert stim.validators_ran == []
+
+    assert seen == ["absent"]
+
+
+def test_validator_does_not_run_when_demand_key_missing():
+    calls: list[str] = []
+
+    @validates(name="check_wm", demand="wm")
+    def check(stimulus, spec):
+        calls.append("ran")
+
+    stim, spec = _stimulus({"other": 1})
+    run_validators(stim, spec)
+
+    assert calls == []
+    assert stim.validators_ran == []
+
+
+def test_unfiltered_and_level_filtered_for_same_demand_both_register():
+    calls: list[str] = []
+
+    @validates(name="any_level", demand="wm")
+    def _any(s, sp):
+        calls.append(f"any:{sp.demands['wm']}")
+
+    @validates(name="just_zero", demand="wm", level=0)
+    def _zero(s, sp):
+        calls.append(f"zero:{sp.demands['wm']}")
+
+    stim, spec = _stimulus({"wm": 0}, sample_id="abs")
+    run_validators(stim, spec)
+    assert stim.validators_ran == ["any_level", "just_zero"]
+
+    stim, spec = _stimulus({"wm": 4}, sample_id="four")
+    run_validators(stim, spec)
+    assert stim.validators_ran == ["any_level"]
+
+    assert calls == ["any:0", "zero:0", "any:4"]

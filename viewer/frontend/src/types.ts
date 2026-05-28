@@ -1,5 +1,5 @@
 export interface Spec {
-  demands: string[];
+  demands: Record<string, number>;
   params: Record<string, unknown>;
 }
 

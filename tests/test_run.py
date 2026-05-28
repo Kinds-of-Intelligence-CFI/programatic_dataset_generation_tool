@@ -95,7 +95,7 @@ def test_run_calls_validators_per_sample(tmp_path: Path):
         calls.append(stimulus.sample_id)
 
     specs = [
-        SampleSpec(demands={"cap_a"}, params={"i": i}) for i in range(3)
+        SampleSpec(demands={"cap_a": 1}, params={"i": i}) for i in range(3)
     ]
     out = tmp_path / "ds"
     run(_trivial_generator, specs, n_reps=2, output_dir=out, seed=0)
@@ -111,7 +111,7 @@ def test_run_aborts_on_validator_failure(tmp_path: Path):
         if spec.params["i"] == 2:
             raise AssertionError("nope on i=2")
 
-    specs = [SampleSpec(demands={"cap_a"}, params={"i": i}) for i in range(5)]
+    specs = [SampleSpec(demands={"cap_a": 1}, params={"i": i}) for i in range(5)]
     out = tmp_path / "ds"
 
     with pytest.raises(ValidationError) as excinfo:
@@ -129,8 +129,8 @@ def test_run_warns_about_demands_without_validators(tmp_path: Path):
         pass
 
     specs = [
-        SampleSpec(demands={"cap_known", "cap_missing_a"}, params={"i": 0}),
-        SampleSpec(demands={"cap_missing_b"}, params={"i": 1}),
+        SampleSpec(demands={"cap_known": 1, "cap_missing_a": 1}, params={"i": 0}),
+        SampleSpec(demands={"cap_missing_b": 1}, params={"i": 1}),
     ]
     out = tmp_path / "ds"
 
@@ -144,7 +144,7 @@ def test_run_warns_about_demands_without_validators(tmp_path: Path):
 
 
 def test_run_writes_manifest_with_correct_fields(tmp_path: Path):
-    specs = [SampleSpec(demands={"cap_a"}, params={"i": i}) for i in range(3)]
+    specs = [SampleSpec(demands={"cap_a": 1}, params={"i": i}) for i in range(3)]
 
     @validates(name="check", demand="cap_a")
     def check(stimulus, spec):
@@ -188,9 +188,9 @@ def test_run_records_validators_ran_in_jsonl(tmp_path: Path):
         pass
 
     specs = [
-        SampleSpec(demands={"cap_a"}, params={"i": 0}),
-        SampleSpec(demands={"cap_a", "cap_b"}, params={"i": 1}),
-        SampleSpec(demands=set(), params={"i": 2}),
+        SampleSpec(demands={"cap_a": 1}, params={"i": 0}),
+        SampleSpec(demands={"cap_a": 1, "cap_b": 1}, params={"i": 1}),
+        SampleSpec(demands={}, params={"i": 2}),
     ]
     out = tmp_path / "ds"
     run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0)
@@ -257,39 +257,39 @@ def test_run_passes_merged_spec_to_generator(tmp_path: Path):
         return _trivial_generator(spec, rng)
 
     specs = [
-        SampleSpec(demands={"cap_exp"}, params={"i": 0}),
-        SampleSpec(demands=set(),       params={"i": 1}),
+        SampleSpec(demands={"cap_exp": 2}, params={"i": 0}),
+        SampleSpec(demands={},             params={"i": 1}),
     ]
-    functional = SampleSpec(demands={"cap_func"}, params={"shared": 42})
+    functional = SampleSpec(demands={"cap_func": 3}, params={"shared": 42})
     run(
         recorder, specs, n_reps=1,
         output_dir=tmp_path / "ds", seed=0, max_workers=1,
         functional=functional,
     )
-    assert received[0].demands == {"cap_func", "cap_exp"}
+    assert received[0].demands == {"cap_func": 3, "cap_exp": 2}
     assert received[0].params == {"shared": 42, "i": 0}
-    assert received[1].demands == {"cap_func"}
+    assert received[1].demands == {"cap_func": 3}
     assert received[1].params == {"shared": 42, "i": 1}
 
 
 def test_run_splits_spec_and_functional_on_stimulus(tmp_path: Path):
-    specs = [SampleSpec(demands={"cap_exp"}, params={"i": 0})]
-    functional = SampleSpec(demands={"cap_func"}, params={"shared": 42})
+    specs = [SampleSpec(demands={"cap_exp": 2}, params={"i": 0})]
+    functional = SampleSpec(demands={"cap_func": 3}, params={"shared": 42})
     out = tmp_path / "ds"
     run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0, functional=functional)
 
     record = _read_jsonl(out / "stimuli.jsonl")[0]
-    assert record["spec"] == {"demands": ["cap_exp"], "params": {"i": 0}}
-    assert record["functional"] == {"demands": ["cap_func"], "params": {"shared": 42}}
+    assert record["spec"] == {"demands": {"cap_exp": 2}, "params": {"i": 0}}
+    assert record["functional"] == {"demands": {"cap_func": 3}, "params": {"shared": 42}}
 
 
 def test_run_without_functional_leaves_functional_null_in_jsonl(tmp_path: Path):
-    specs = [SampleSpec(demands={"cap_exp"}, params={"i": 0})]
+    specs = [SampleSpec(demands={"cap_exp": 1}, params={"i": 0})]
     out = tmp_path / "ds"
     run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0)
 
     record = _read_jsonl(out / "stimuli.jsonl")[0]
-    assert record["spec"] == {"demands": ["cap_exp"], "params": {"i": 0}}
+    assert record["spec"] == {"demands": {"cap_exp": 1}, "params": {"i": 0}}
     assert record["functional"] is None
 
 
@@ -301,10 +301,10 @@ def test_run_functional_demand_validators_run_on_every_sample(tmp_path: Path):
         calls.append(stimulus.sample_id)
 
     specs = [
-        SampleSpec(demands=set(), params={"i": 0}),
-        SampleSpec(demands=set(), params={"i": 1}),
+        SampleSpec(demands={}, params={"i": 0}),
+        SampleSpec(demands={}, params={"i": 1}),
     ]
-    functional = SampleSpec(demands={"cap_func"})
+    functional = SampleSpec(demands={"cap_func": 1})
     run(_trivial_generator, specs, n_reps=2,
         output_dir=tmp_path / "ds", seed=0, functional=functional)
 
@@ -338,7 +338,7 @@ def test_run_no_missing_validator_warning_when_demand_only_in_functional(tmp_pat
         pass
 
     specs = [SampleSpec(params={"i": 0})]
-    functional = SampleSpec(demands={"cap_func"})
+    functional = SampleSpec(demands={"cap_func": 1})
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         run(_trivial_generator, specs, n_reps=1,
@@ -347,19 +347,67 @@ def test_run_no_missing_validator_warning_when_demand_only_in_functional(tmp_pat
 
 
 def test_run_writes_functional_to_manifest(tmp_path: Path):
-    specs = [SampleSpec(demands={"cap_exp"}, params={"i": 0})]
-    functional = SampleSpec(demands={"cap_func"}, params={"shared": 1})
+    specs = [SampleSpec(demands={"cap_exp": 2}, params={"i": 0})]
+    functional = SampleSpec(demands={"cap_func": 3}, params={"shared": 1})
     out = tmp_path / "ds"
     run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0, functional=functional)
 
     manifest = json.loads((out / "manifest.json").read_text())
-    assert manifest["functional"] == {"demands": ["cap_func"], "params": {"shared": 1}}
-    assert manifest["specs"] == [{"demands": ["cap_exp"], "params": {"i": 0}}]
+    assert manifest["functional"] == {"demands": {"cap_func": 3}, "params": {"shared": 1}}
+    assert manifest["specs"] == [{"demands": {"cap_exp": 2}, "params": {"i": 0}}]
 
 
 def test_run_manifest_functional_is_null_when_not_supplied(tmp_path: Path):
-    specs = [SampleSpec(demands={"cap_a"}, params={"i": 0})]
+    specs = [SampleSpec(demands={"cap_a": 1}, params={"i": 0})]
     out = tmp_path / "ds"
     run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0)
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["functional"] is None
+
+
+# ---- functional + experimental demand collisions ----------------------------
+
+
+def test_run_demand_key_in_both_functional_and_spec_raises(tmp_path: Path):
+    specs = [
+        SampleSpec(demands={"cap_a": 1}, params={"i": 0}),
+        SampleSpec(demands={"cap_a": 2}, params={"i": 1}),
+    ]
+    functional = SampleSpec(demands={"cap_a": 1})
+    with pytest.raises(ValueError, match="cap_a"):
+        run(_trivial_generator, specs, n_reps=1,
+            output_dir=tmp_path / "ds", seed=0, functional=functional)
+
+
+def test_run_demand_collision_raises_even_when_levels_match(tmp_path: Path):
+    specs = [SampleSpec(demands={"cap_a": 3}, params={"i": 0})]
+    functional = SampleSpec(demands={"cap_a": 3})
+    with pytest.raises(ValueError, match="cap_a"):
+        run(_trivial_generator, specs, n_reps=1,
+            output_dir=tmp_path / "ds", seed=0, functional=functional)
+
+
+def test_run_demand_conflict_error_lists_all_offending_keys(tmp_path: Path):
+    specs = [SampleSpec(demands={"cap_a": 1, "cap_b": 1, "cap_c": 1}, params={"i": 0})]
+    functional = SampleSpec(demands={"cap_a": 9, "cap_b": 8})
+    with pytest.raises(ValueError) as excinfo:
+        run(_trivial_generator, specs, n_reps=1,
+            output_dir=tmp_path / "ds", seed=0, functional=functional)
+    msg = str(excinfo.value)
+    assert "cap_a" in msg and "cap_b" in msg
+    assert "cap_c" not in msg
+
+
+def test_run_disjoint_demands_merge_without_error(tmp_path: Path):
+    received: list[SampleSpec] = []
+
+    def recorder(spec, rng):
+        received.append(spec)
+        return _trivial_generator(spec, rng)
+
+    specs = [SampleSpec(demands={"cap_exp": 5}, params={"i": 0})]
+    functional = SampleSpec(demands={"cap_func": 2})
+    run(recorder, specs, n_reps=1,
+        output_dir=tmp_path / "ds", seed=0, functional=functional)
+
+    assert received[0].demands == {"cap_func": 2, "cap_exp": 5}
