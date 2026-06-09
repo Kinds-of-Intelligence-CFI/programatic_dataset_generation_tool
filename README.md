@@ -65,7 +65,7 @@ def generate_stimulus(spec: SampleSpec, rng: random.Random) -> Stimulus:
     )
 
 
-specs = [SampleSpec(demands={"addition"})]
+specs = [SampleSpec(demands={"addition": 1})]
 
 run(
     generate_stimulus,
@@ -118,14 +118,20 @@ In this section we will cover a variety of examples of how to implement differen
 This example is about a simple question answer experiment. These types of experiment are not well suited to this type of dataset generation (unless you generate the questions using a knowledge base such as wiki data) however the point of this example is to show you the features of the tool without complicated generation logic and show a full run through of the process.
 
 #### planning
-First we want to specify the different demands and combinations we want to test. In this case we are building an experiment where we ask a language model to solve maths problems and so we might decide that our demands are `addition`, `subtraction`, `multiplication` and `division`. Currently, demands are simply strings and if the string is present in spec the stimuli should require it to solve, however in the future they are likely to also support having a value indicating what level of demand is needed. Next, we will define other values we want to control that are not demands themselves, for example we will probably want to control the number of operations in the question and the range of values for the inputs to the operations. We will give these the names `num_operations` and `min_values`/`max_values`.
+First we want to specify the different demands and combinations we want to test. In this case we are building an experiment where we ask a language model to solve maths problems and so we might decide that our demands are `addition`, `subtraction`, `multiplication` and `division`. Demands are stored as a `dict[str, int]` mapping each demand name to a *level*, which lets you describe not just that a demand is present but how much of it the stimulus requires (e.g. working memory level 3 versus level 5). The level values follow three conventions:
+
+- `name: N` where `N > 0` means the sample must exhibit that demand at level `N`.
+- `name: 0` means the sample must explicitly **not** exhibit that demand. This is how you ask for a guaranteed-absent demand rather than just leaving it unconstrained.
+- A name that is **absent** from the dict is unspecified: the generator may produce any level (including absent), and no validators registered for that demand will run.
+
+If your experiment has no meaningful notion of "level" (as with these maths operations, where a demand is simply present or not) just use `1` for present and `0`/omission for absent. Next, we will define other values we want to control that are not demands themselves, for example we will probably want to control the number of operations in the question and the range of values for the inputs to the operations. We will give these the names `num_operations` and `min_values`/`max_values`.
 
 Now that we have defined our demands and parameters we can build a list of specs with one spec corresponding to a single sample in your dataset. This can be done manually:
 ```python
 specs = [
-    SampleSpec(demands={"addition"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
-    SampleSpec(demands={"addition", "subtraction"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
-    SampleSpec(demands={"multiplication"}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
+    SampleSpec(demands={"addition": 1}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
+    SampleSpec(demands={"addition": 1, "subtraction": 1}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
+    SampleSpec(demands={"multiplication": 1}, params={"num_operations" : 3, "min_values" : 1, "max_values" : 5}),
     ...
 ]
 ```
@@ -136,7 +142,7 @@ from generation.utils import grid
 
 ops = ["addition", "subtraction", "multiplication", "division"]
 demand_combos = [
-    set(combo)
+    {op: 1 for op in combo}
     for r in range(1, len(ops) + 1)
     for combo in combinations(ops, r)
 ]
@@ -217,6 +223,14 @@ This is an idealised example and in real examples with more complicated generati
 def check_contains_addition(stimulus: Stimulus, spec: SampleSpec) -> None:
     assert "+" in stimulus.messages[0].content
 ```
+By default a validator runs whenever its demand appears in the spec, at any level (including `0`). If you want a validator to only run at a specific demand level you can pass the optional `level` argument. The most useful case for this is `level=0`, which lets you assert that a demand really is absent from the stimulus:
+```python
+@validates(name="no addition symbol", demand="addition", level=0)
+def check_no_addition(stimulus: Stimulus, spec: SampleSpec) -> None:
+    assert "+" not in stimulus.messages[0].content
+```
+This validator only runs on samples whose spec contains `"addition": 0`; for any other level it is skipped.
+
 We can also specify validators that will run on all samples regardless of the demands, this is useful for checking the parameters are being followed.
 ```python
 @validates(name="check number of operations", demand="*")
