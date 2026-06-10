@@ -21,6 +21,7 @@ from dataset.stimulus import (
     Stimulus,
 )
 from generation.generate import SampleSpec
+from generation.glossary import Glossary
 
 _PACKAGE_NAME = "programatic-dataset-generation-tool"
 _FALLBACK_VERSION = "0.1.0"
@@ -170,6 +171,7 @@ def write_manifest(
     n_reps: int,
     n_stimuli: int,
     functional: SampleSpec | None = None,
+    glossary: Glossary | None = None,
 ) -> None:
     manifest = {
         "name": name,
@@ -179,6 +181,7 @@ def write_manifest(
         "n_reps": n_reps,
         "n_stimuli": n_stimuli,
         "functional": to_jsonable(functional) if functional is not None else None,
+        "glossary": glossary.to_jsonable() if glossary is not None else None,
         "specs": [to_jsonable(s) for s in specs],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,6 +197,7 @@ def write_dataset(
     global_seed: int,
     n_reps: int,
     functional: SampleSpec | None = None,
+    glossary: Glossary | None = None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     cache = AssetCache()
@@ -211,6 +215,7 @@ def write_dataset(
         n_reps=n_reps,
         n_stimuli=n_stimuli,
         functional=functional,
+        glossary=glossary,
     )
 
 

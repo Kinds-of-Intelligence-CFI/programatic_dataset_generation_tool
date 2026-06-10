@@ -23,6 +23,7 @@ from dataset.writer import (
     write_manifest,
 )
 from generation.generate import SampleSpec
+from generation.glossary import DemandDefinition, Glossary
 
 FAKE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 FAKE_PNG_B64 = base64.b64encode(FAKE_PNG).decode("ascii")
@@ -357,6 +358,39 @@ def test_write_manifest_functional_is_null_when_not_supplied(tmp_path: Path):
     )
     m = json.loads(path.read_text())
     assert m["functional"] is None
+
+
+def test_write_manifest_includes_glossary_when_supplied(tmp_path: Path):
+    path = tmp_path / "manifest.json"
+    glossary = Glossary(
+        name="g",
+        tree={
+            "Language": {
+                "creation": DemandDefinition(
+                    description="produce", paper_link="http://example.com/p"
+                )
+            }
+        },
+    )
+    write_manifest(
+        path, name="x", specs=[SampleSpec()], global_seed=0, n_reps=1, n_stimuli=1,
+        glossary=glossary,
+    )
+    m = json.loads(path.read_text())
+    assert m["glossary"]["name"] == "g"
+    demand = m["glossary"]["demands"]["creation"]
+    assert demand["description"] == "produce"
+    assert demand["paper_link"] == "http://example.com/p"
+    assert demand["ancestry"] == ["Language"]
+
+
+def test_write_manifest_glossary_is_null_when_not_supplied(tmp_path: Path):
+    path = tmp_path / "manifest.json"
+    write_manifest(
+        path, name="x", specs=[SampleSpec()], global_seed=0, n_reps=1, n_stimuli=1,
+    )
+    m = json.loads(path.read_text())
+    assert m["glossary"] is None
 
 
 def test_write_dataset_end_to_end_with_inline_image(tmp_path: Path):

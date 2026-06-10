@@ -8,12 +8,21 @@ import pytest
 
 from dataset.stimulus import Message, Stimulus
 from generation.generate import SampleSpec
-from generation.runner import current_output_dir, run
+from generation.glossary import DemandDefinition, Glossary
+from generation.runner import current_output_dir
+from generation.runner import run as _run
 from generation.validation import (
     ValidationError,
     _clear_registry,
     validates,
 )
+
+
+def run(*args, **kwargs):
+    # These tests use synthetic demand names and are orthogonal to glossary
+    # enforcement; default the check off. Glossary behaviour has dedicated tests.
+    kwargs.setdefault("glossary", None)
+    return _run(*args, **kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -396,6 +405,80 @@ def test_run_demand_conflict_error_lists_all_offending_keys(tmp_path: Path):
     msg = str(excinfo.value)
     assert "cap_a" in msg and "cap_b" in msg
     assert "cap_c" not in msg
+
+
+# ---- glossary enforcement ---------------------------------------------------
+
+
+def _glossary() -> Glossary:
+    return Glossary(
+        name="test-gloss",
+        tree={
+            "Language": {
+                "creation": DemandDefinition(
+                    description="produce language", paper_link="http://x"
+                )
+            },
+            "addition": DemandDefinition(
+                description="add numbers", paper_link="http://x"
+            ),
+        },
+    )
+
+
+def test_run_raises_on_demand_outside_glossary(tmp_path: Path):
+    specs = [SampleSpec(demands={"additon": 1}, params={"i": 0})]
+    with pytest.raises(ValueError, match="additon") as excinfo:
+        _run(_trivial_generator, specs, n_reps=1,
+             output_dir=tmp_path / "ds", seed=0, glossary=_glossary())
+    # suggests the correctly-spelled neighbour
+    assert "addition" in str(excinfo.value)
+
+
+def test_run_glossary_checks_functional_demands(tmp_path: Path):
+    specs = [SampleSpec(demands={"addition": 1}, params={"i": 0})]
+    functional = SampleSpec(demands={"unknown_cap": 1})
+    with pytest.raises(ValueError, match="unknown_cap"):
+        _run(_trivial_generator, specs, n_reps=1,
+             output_dir=tmp_path / "ds", seed=0,
+             functional=functional, glossary=_glossary())
+
+
+def test_run_passes_when_all_demands_in_glossary(tmp_path: Path):
+    specs = [
+        SampleSpec(demands={"addition": 1}, params={"i": 0}),
+        SampleSpec(demands={"creation": 1}, params={"i": 1}),
+    ]
+    out = tmp_path / "ds"
+    _run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0,
+         glossary=_glossary())
+    assert len(_read_jsonl(out / "stimuli.jsonl")) == 2
+
+
+def test_run_glossary_none_disables_check(tmp_path: Path):
+    specs = [SampleSpec(demands={"anything_goes": 1}, params={"i": 0})]
+    out = tmp_path / "ds"
+    _run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0, glossary=None)
+    assert len(_read_jsonl(out / "stimuli.jsonl")) == 1
+
+
+def test_run_records_glossary_in_manifest(tmp_path: Path):
+    specs = [SampleSpec(demands={"addition": 1}, params={"i": 0})]
+    out = tmp_path / "ds"
+    _run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0,
+         glossary=_glossary())
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["glossary"]["name"] == "test-gloss"
+    assert "addition" in manifest["glossary"]["demands"]
+    assert manifest["glossary"]["demands"]["addition"]["ancestry"] == []
+
+
+def test_run_glossary_none_records_null_in_manifest(tmp_path: Path):
+    specs = [SampleSpec(params={"i": 0})]
+    out = tmp_path / "ds"
+    _run(_trivial_generator, specs, n_reps=1, output_dir=out, seed=0, glossary=None)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["glossary"] is None
 
 
 def test_run_disjoint_demands_merge_without_error(tmp_path: Path):

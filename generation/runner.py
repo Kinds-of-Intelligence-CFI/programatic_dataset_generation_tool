@@ -1,4 +1,5 @@
 import contextvars
+import difflib
 import random
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,6 +11,7 @@ from tqdm import tqdm
 from dataset.stimulus import Stimulus
 from dataset.writer import write_dataset
 from generation.generate import GenerateFn, SampleSpec
+from generation.glossary import DEFAULT_GLOSSARY, Glossary
 from generation.validation import (
     registered_demands,
     run_validators,
@@ -46,6 +48,7 @@ def run(
     name: str | None = None,
     max_workers: int | None = None,
     functional: SampleSpec | None = None,
+    glossary: Glossary | None = DEFAULT_GLOSSARY,
 ) -> None:
     """Generate stimuli in parallel, validate per-sample, write to output_dir.
 
@@ -58,10 +61,17 @@ def run(
     before calling the generator and validators, then stores the two pieces
     separately on the returned Stimulus so they serialise as two top-level
     fields - making the constants visible at a glance in the JSONL and manifest.
+
+    `glossary` constrains the allowed demand names. By default it is the
+    team-wide `DEFAULT_GLOSSARY`; any demand used in `specs` or `functional`
+    that is not in it raises before generation begins. Pass `glossary=None` to
+    disable the check, or another `Glossary` for a different vocabulary.
     """
     if functional is not None:
         _check_param_conflicts(functional, specs)
         _check_demand_conflicts(functional, specs)
+    if glossary is not None:
+        _check_glossary(glossary, specs, functional)
     _warn_about_missing_validators(specs, functional)
 
     jobs = [
@@ -127,6 +137,7 @@ def run(
         global_seed=seed,
         n_reps=n_reps,
         functional=functional,
+        glossary=glossary,
     )
 
 
@@ -163,6 +174,35 @@ def _check_demand_conflicts(functional: SampleSpec, specs: list[SampleSpec]) -> 
             + ". A functional demand is by definition the same for every sample; "
             "remove it from the experimental specs or from functional."
         )
+
+
+def _check_glossary(
+    glossary: Glossary, specs: list[SampleSpec], functional: SampleSpec | None
+) -> None:
+    names: set[str] = set()
+    for spec in specs:
+        names.update(spec.demands)
+    if functional is not None:
+        names.update(functional.demands)
+
+    unknown = glossary.unknown(names)
+    if not unknown:
+        return
+
+    valid = list(glossary.names)
+    lines: list[str] = []
+    for n in unknown:
+        suggestions = difflib.get_close_matches(n, valid, n=3)
+        if suggestions:
+            hint = ", ".join(repr(s) for s in suggestions)
+            lines.append(f"  {n!r} (did you mean: {hint}?)")
+        else:
+            lines.append(f"  {n!r}")
+    raise ValueError(
+        f"Demands not in glossary {glossary.name!r}:\n"
+        + "\n".join(lines)
+        + "\nAdd them to the glossary, or pass glossary=None to disable this check."
+    )
 
 
 def _warn_about_missing_validators(

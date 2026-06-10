@@ -44,7 +44,7 @@ from evaluation.inspect_utils import load_dataset  # requires the inspect group
 
 ## Quickstart
 
-Here is a complete hello-world script. It defines one demand (`addition`), one `SampleSpec`, and one generation function, then writes a small dataset to disk.
+Here is a complete hello-world script. It defines one demand (`addition`), one `SampleSpec`, and one generation function, then writes a small dataset to disk. By default `run()` checks every demand name against a built-in glossary; `addition` is not in it, so this toy passes `glossary=None` to skip the check (the [glossary](#restricting-demand-names-with-a-glossary) section below shows how to define your own).
 
 ```python
 import random
@@ -73,6 +73,7 @@ run(
     n_reps=3,
     output_dir=Path("hello_world_dataset"),
     seed=42,
+    glossary=None,
 )
 ```
 
@@ -108,6 +109,58 @@ def generate_stimuli(spec: SampleSpec, rng: random.Random) -> Stimulus:
 where the `spec` argument defines the specific requirement for this individual stimulus. This can include the specific demands being tested, if the sample is a control or test sample or other metadata about the generation such as the resolution of any images to generate or similar. Your generate function will then need to generate a stimulus object with all the requirements specified in the spec and anything not specified randomised using `rng` as a generator. Once this is done you can specify what combinations of requirements you want in your dataset along with other values such as how many samples and the seed value. The tool with then create the samples with each combination you want, validate that each one correctly tests the demands you want it to test and will save the results to a folder including all of the stimuli, assets such as images and a manifest of the dataset describing how and when the dataset was generated for easy replication.
 
 Additionally, we provide tools to load your datasets into `inspect_ai` and provide examples of how to run evaluations on them. However, if you wish to use the datasets in any other framework you can simply parse the json files and load them into the specific format for that framework.
+
+## Restricting demand names with a glossary
+
+Free-form demand strings drift over time (`creation` vs `lang_creation` vs the typo `langauge`), which quietly breaks any cross-project analysis that groups by demand name. To prevent this, `run()` checks every demand name used in your specs (and `functional`) against a **glossary** of allowed names. By default it uses the team-wide `DEFAULT_GLOSSARY`; an unknown name aborts the run before generation with an error that lists the offenders and suggests near-matches. Pass `glossary=None` to disable the check entirely, or a `Glossary` of your own for a different vocabulary.
+
+A glossary is authored as a nested dict. Plain dict keys are **grouping nodes** - organizational only, never usable as demands. A `DemandDefinition` leaf is a **usable demand**, and the demand name you put in a spec is just its **own (short) leaf name**, regardless of how deep it sits in the tree - so you write `{"Create": 1}`, not the full path. Leaf names must be unique across the whole tree. The groups above a demand (its *ancestry*, e.g. `Language`) are kept as metadata for grouping and analysis. Each `DemandDefinition` carries a description and a `paper_link` to where the demand was defined, so the vocabulary documents itself and travels with the dataset (the glossary, including each demand's ancestry, is recorded in `manifest.json`).
+
+```python
+from generation.glossary import Glossary, DemandDefinition
+
+glossary = Glossary(
+    name="maths-ops",
+    tree={
+        "addition": DemandDefinition(
+            description="the question requires addition",
+            paper_link="https://example.com/your-paper",
+        ),
+        "subtraction": DemandDefinition(
+            description="the question requires subtraction",
+            paper_link="https://example.com/your-paper",
+        ),
+        "Language": {
+            "Create": DemandDefinition(
+                description="the model must produce language",
+                paper_link="https://example.com/your-paper",
+            ),
+            "Parse": DemandDefinition(
+                description="the model must understand language",
+                paper_link="https://example.com/your-paper",
+            ),
+        },
+    },
+)
+# usable demand names: "addition", "subtraction", "Create", "Parse"
+# ("Create" carries ancestry ("Language",); use glossary.category("Create") -> "Language")
+
+run(generate_stimulus, specs, n_reps=2, output_dir=out_dir, seed=12345, glossary=glossary)
+```
+
+You can also keep the glossary in a JSON file and load it with `Glossary.from_file("glossary.json")`. The file is `{"name": ..., "tree": {...}}`, where a node is a demand if it has a `"description"` key (it then also needs `"paper_link"`) and otherwise a group:
+
+```json
+{
+  "name": "maths-ops",
+  "tree": {
+    "addition": {"description": "the question requires addition", "paper_link": "https://example.com/your-paper"},
+    "Language": {
+      "Create": {"description": "the model must produce language", "paper_link": "https://example.com/your-paper"}
+    }
+  }
+}
+```
 
 ## Examples
 
@@ -155,6 +208,23 @@ specs = grid({
 })
 ```
 more examples of these can be found in `./generation/utils.py`.
+
+Because these demand names are specific to this experiment rather than the built-in `DEFAULT_GLOSSARY`, we also define a small glossary for them (see [Restricting demand names with a glossary](#restricting-demand-names-with-a-glossary)) and pass it to `run()` below so typos in demand names are caught before generation:
+
+```python
+from generation.glossary import Glossary, DemandDefinition
+
+glossary = Glossary(
+    name="maths-ops",
+    tree={
+        op: DemandDefinition(
+            description=f"the question requires {op}",
+            paper_link="https://example.com/your-paper",
+        )
+        for op in ops
+    },
+)
+```
 
 #### generation
 Now that we have defined the names for our demands and params we can start on implementing the generation. The first step in generation is often to check if the demands and params given are a valid combination. In this example a simple check we might do is to check if the number of demands required is less than the number of operations, as we cannot generate a sample that required both addition and multiplication using only one operation. When we encounter a sample we cannot generate we will throw an error, in this case our function will look something like this:
@@ -212,7 +282,7 @@ return Stimulus(
 ```
 Now we have a full generation function for our experiment and the specs for all the samples we want we can run the dataset builder and output a dataset to a given folder.
 ```python
-run(generate_stimulus, specs, n_reps=2, output_dir=out_dir, seed=12345, max_workers=4)
+run(generate_stimulus, specs, n_reps=2, output_dir=out_dir, seed=12345, max_workers=4, glossary=glossary)
 ```
 
 #### validation
